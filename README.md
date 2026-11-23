@@ -1,4 +1,4 @@
-# SynergyIK
+# Synergy-IK
 
 <img src="https://github.com/user-attachments/assets/261ca837-f33c-44bb-ab37-02ddf65bad6a" alt="SynergyIK demo (0.5x)">
 
