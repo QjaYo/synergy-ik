@@ -18,7 +18,7 @@
     </td>
     <td align="center" width="50%">
       <img src="https://github.com/user-attachments/assets/3086766f-ed0e-4e82-a2b4-421ad8e2ed47" width="100%" alt="Dancing motion demo"><br>
-      <a href="https://github.com/QjaYo/synergy-ik/issues/6">Dancing (6.3 s)</a>
+      <a href="https://github.com/QjaYo/synergy-ik/issues/6">Dancing</a>
     </td>
   </tr>
   <tr>
