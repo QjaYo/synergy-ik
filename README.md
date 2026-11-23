@@ -87,6 +87,12 @@ ensuring that $W$ is symmetric positive definite:
 W = LL^{\mathsf T} \succ 0, \qquad L_{ii} > 0.
 ```
 
+### Architecture
+
+![SynergyIK architecture showing the learned joint cost matrix, weighted IK solver, and training loss](docs/architecture.png)
+
+[View architecture diagram (issue #9)](https://github.com/QjaYo/synergy-ik/issues/9)
+
 ---
 
 ## Setup and usage
