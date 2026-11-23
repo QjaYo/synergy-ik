@@ -1,5 +1,8 @@
 # SynergyIK
 
+<img src="https://github.com/user-attachments/assets/261ca837-f33c-44bb-ab37-02ddf65bad6a" alt="SynergyIK demo (0.5x)">
+
+
 Learn state-dependent joint costs for full-body inverse kinematics. The current
 model predicts a positive-definite W and follows four end effectors' position
 and orientation targets. Training uses motion velocities and two ankle-contact
