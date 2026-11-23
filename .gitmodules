@@ -1,0 +1,6 @@
+[submodule "third_party/fairmotion"]
+	path = third_party/fairmotion
+	url = https://github.com/facebookresearch/fairmotion.git
+[submodule "third_party/UnderPressure"]
+	path = third_party/UnderPressure
+	url = https://github.com/InterDigitalInc/UnderPressure.git

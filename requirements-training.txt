@@ -1,0 +1,4 @@
+-r requirements.txt
+# Select the CPU/CUDA PyTorch build for your machine.
+torch
+tensorboard>=2.21,<3

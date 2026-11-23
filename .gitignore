@@ -1,0 +1,84 @@
+# Local datasets and generated review/export files
+/data/*
+!/data/.gitkeep
+/preprocess/.state/
+/preprocess/motion_review/results/
+/exports/
+
+# Presentation materials (both Unicode spellings used by macOS/Windows)
+/발표용자료/
+/발표용자료/
+
+# Generated binary data, model weights, databases and archives
+*.npz
+*.npy
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.bin
+*.bvh
+*.asf
+*.amc
+*.pkl
+*.pickle
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.db-wal
+*.db-shm
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+
+# Local experiments and results; production code lives in source/preprocess/test.
+/experiment/
+
+# Personal research notes and presentation drafts
+/docs/
+/fairmotion_Motion.txt
+
+# Runtime output
+*.log
+*.pid
+*.tmp
+
+# Python bytecode, build artifacts and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+/build/
+/dist/
+
+# Local virtual environments
+/.conda/
+/.venv/
+/venv/
+
+# Local environment settings; keep the example trackable
+.env
+.env.*
+!.env.example
+
+# Local editor and viewer settings
+/.vscode/
+/.idea/
+imgui.ini
+
+# Operating-system metadata
+.DS_Store
+._*
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+Thumbs.db
+Desktop.ini

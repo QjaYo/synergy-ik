@@ -1,0 +1,5 @@
+# Python 3.10; shared numerical dependencies.
+# Import fairmotion directly from third_party/fairmotion.
+numpy==1.26.4
+scipy==1.11.4
+tqdm>=4.66,<5

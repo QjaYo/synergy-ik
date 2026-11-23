@@ -1,0 +1,7 @@
+-r requirements.txt
+torch
+PyOpenGL>=3.1.6,<4
+Pillow>=9,<13
+# Fairmotion's viewer imports the ASF/AMC loader, which uses matplotlib.
+matplotlib>=3.7,<4
+# Optional original-surface rendering: install usd-core separately.

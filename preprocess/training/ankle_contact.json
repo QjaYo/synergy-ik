@@ -1,0 +1,7 @@
+{
+  "method": "joint-ground-v1",
+  "joints": ["LeftFoot", "RightFoot"],
+  "height_threshold": 0.12,
+  "speed_threshold": 0.4,
+  "ground_y": 0.0
+}
