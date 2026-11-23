@@ -2,11 +2,56 @@
 
 <img src="https://github.com/user-attachments/assets/261ca837-f33c-44bb-ab37-02ddf65bad6a" alt="SynergyIK demo (0.5x)">
 
+Learn state-dependent joint costs from motion data to select human-like movement
+in redundant full-body inverse kinematics.
 
-Learn state-dependent joint costs for full-body inverse kinematics. The current
-model predicts a positive-definite W and follows four end effectors' position
-and orientation targets. Training uses motion velocities and two ankle-contact
-values. Full-SPD training remains experimental and can become ill-conditioned.
+**Redundant inverse kinematics.** The Jacobian relates joint velocities to
+end-effector (EE) velocities:
+
+$$
+J(q)\dot q = \dot x.
+$$
+
+Here, $\dot q$ contains root linear and joint angular velocities, while $\dot x$
+contains EE linear and angular velocities. With more joint degrees of freedom
+than task constraints, this underdetermined system has multiple solutions for a
+feasible task.
+
+**Moore-Penrose baseline.** The pseudoinverse selects the minimum-norm solution:
+
+$$
+\begin{aligned}
+\dot q_{\mathrm{MP}} &= J(q)^{+}\dot x
+= \underset{\dot q}{\operatorname{argmin}}\; \frac{1}{2}\dot q^{\mathsf T}\dot q, \\
+&\text{subject to}\quad J(q)\dot q = \dot x.
+\end{aligned}
+$$
+
+More generally, it gives the minimum-norm least-squares solution when the task
+cannot be satisfied exactly. Minimizing velocity norm alone does not encode
+human joint coordination or anatomical limits, so the resulting motion can
+include unnatural joint bending.
+
+**Learned joint costs.** We learn a state-dependent cost matrix $W$ from motion
+data, conditioned on the current pose, desired EE velocities and foot contact.
+The aim is to resolve redundancy by selecting joint motion that better matches
+human movement:
+
+$$
+\begin{aligned}
+\dot q_{\mathrm{pred}} &= \underset{\dot q}{\operatorname{argmin}}\;
+\frac{1}{2}\dot q^{\mathsf T}W\dot q, \\
+&\text{subject to}\quad J(q)\dot q = \dot x.
+\end{aligned}
+$$
+
+We require $W$ to be symmetric positive definite, giving a strictly positive
+cost to every nonzero joint velocity. A Cholesky parameterization enforces this
+by predicting a lower-triangular $L$ with positive diagonal entries:
+
+$$
+W = LL^{\mathsf T} \succ 0, \qquad L_{ii} > 0.
+$$
 
 ## Installation
 
@@ -60,3 +105,7 @@ python -m unittest discover -s test -v
 ```
 
 Asset-dependent checks are skipped when their optional data/model files are absent.
+
+**Status:** Research is ongoing; the current model uses four EE position/orientation
+targets and two ankle-contact inputs, and full-SPD training can still become
+ill-conditioned.
