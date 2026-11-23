@@ -2,58 +2,66 @@
 
 <img src="https://github.com/user-attachments/assets/261ca837-f33c-44bb-ab37-02ddf65bad6a" alt="SynergyIK demo (0.5x)">
 
-Learn state-dependent joint costs from motion data to select human-like movement
-in redundant full-body inverse kinematics.
+## Project overview
 
-**Redundant inverse kinematics.** The Jacobian relates joint velocities to
-end-effector (EE) velocities:
+SynergyIK learns state-dependent joint costs from motion data to select
+human-like movement while following end-effector (EE) targets.
 
-$$
+### 1. Redundant inverse kinematics
+
+At the current pose $q$, the Jacobian maps joint velocities to EE velocities:
+
+```math
 J(q)\dot q = \dot x.
-$$
+```
 
-Here, $\dot q$ contains root linear and joint angular velocities, while $\dot x$
-contains EE linear and angular velocities. With more joint degrees of freedom
-than task constraints, this underdetermined system has multiple solutions for a
-feasible task.
+- $\dot q$: root linear velocity and joint angular velocities.
+- $\dot x$: desired EE linear and angular velocities.
 
-**Moore-Penrose baseline.** The pseudoinverse selects the minimum-norm solution:
+There are more joint degrees of freedom than task constraints, so a feasible
+task has multiple solutions. IK must choose which joint motion to use.
 
-$$
-\begin{aligned}
-\dot q_{\mathrm{MP}} &= J(q)^{+}\dot x
-= \underset{\dot q}{\operatorname{argmin}}\; \frac{1}{2}\dot q^{\mathsf T}\dot q, \\
-&\text{subject to}\quad J(q)\dot q = \dot x.
-\end{aligned}
-$$
+### 2. Moore-Penrose baseline
 
-More generally, it gives the minimum-norm least-squares solution when the task
-cannot be satisfied exactly. Minimizing velocity norm alone does not encode
-human joint coordination or anatomical limits, so the resulting motion can
-include unnatural joint bending.
+The Moore-Penrose solution $\dot q_{\mathrm{MP}} = J(q)^+\dot x$ chooses the
+**minimum-norm joint velocity**:
 
-**Learned joint costs.** We learn a state-dependent cost matrix $W$ from motion
-data, conditioned on the current pose, desired EE velocities and foot contact.
-The aim is to resolve redundancy by selecting joint motion that better matches
-human movement:
+```math
+\dot q_{\mathrm{MP}} = \underset{\dot q}{\mathrm{arg\,min}}\;
+\frac{1}{2}\dot q^{\mathsf T}\dot q,
+\quad\text{subject to}\quad J(q)\dot q = \dot x.
+```
 
-$$
-\begin{aligned}
-\dot q_{\mathrm{pred}} &= \underset{\dot q}{\operatorname{argmin}}\;
-\frac{1}{2}\dot q^{\mathsf T}W\dot q, \\
-&\text{subject to}\quad J(q)\dot q = \dot x.
-\end{aligned}
-$$
+**Limitation:** This criterion does not encode human coordination or anatomical
+limits and can produce unnatural joint bending.
+If the task is infeasible, the pseudoinverse returns the minimum-norm
+least-squares solution instead.
 
-We require $W$ to be symmetric positive definite, giving a strictly positive
-cost to every nonzero joint velocity. A Cholesky parameterization enforces this
-by predicting a lower-triangular $L$ with positive diagonal entries:
+### 3. Learned joint costs
 
-$$
+We train a network on motion data to predict $W$ from the current pose, desired
+EE velocities and foot contact. The learned cost guides the choice among IK
+solutions toward human-like joint coordination:
+
+```math
+\dot q_{\mathrm{pred}} = \underset{\dot q}{\mathrm{arg\,min}}\;
+\frac{1}{2}\dot q^{\mathsf T}W\dot q,
+\quad\text{subject to}\quad J(q)\dot q = \dot x.
+```
+
+**SPD constraint:** We require a strictly positive quadratic cost. The network
+predicts a lower-triangular Cholesky factor $L$ with positive diagonal entries,
+ensuring that $W$ is symmetric positive definite:
+
+```math
 W = LL^{\mathsf T} \succ 0, \qquad L_{ii} > 0.
-$$
+```
 
-## Installation
+---
+
+## Setup and usage
+
+### Installation
 
 Use Python 3.10. Run commands from the repository root in your Python environment.
 Choose the PyTorch CPU/CUDA build for your machine before installing dependencies.
@@ -68,7 +76,7 @@ runtime; mesh rendering additionally needs `usd-core` and the original SOMA
 Uniform assets. Optional contact-model setup is in [third_party](third_party/README.md).
 Motion data, prepared datasets, checkpoints and local experiments are not included.
 
-## Run
+### Run
 
 Convert original BVHs, then follow [data preparation](preprocess/training/README.md)
 to create `data/preprocessed/`. The [review tool](preprocess/motion_review/README.md)
@@ -96,7 +104,7 @@ python source/visualize_contacts.py --bvh-file data/canonical_bvh/DATE/clip.bvh 
 
 Additional options are listed by each command's `--help`.
 
-## Tests
+### Tests
 
 With training and viewer dependencies installed:
 
@@ -105,6 +113,8 @@ python -m unittest discover -s test -v
 ```
 
 Asset-dependent checks are skipped when their optional data/model files are absent.
+
+---
 
 **Status:** Research is ongoing; the current model uses four EE position/orientation
 targets and two ankle-contact inputs, and full-SPD training can still become
