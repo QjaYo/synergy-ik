@@ -32,15 +32,14 @@ The Moore-Penrose solution $\dot q_{\mathrm{MP}} = J(q)^+\dot x$ chooses the
 \quad\text{subject to}\quad J(q)\dot q = \dot x.
 ```
 
-**Limitation:** This criterion does not encode human coordination or anatomical
+**Limitation:** This criterion does not account for human coordination or anatomical
 limits and can produce unnatural joint bending.
-If the task is infeasible, the pseudoinverse returns the minimum-norm
-least-squares solution instead.
 
 ### 3. Learned joint costs
 
 We train a network on motion data to predict $W$ from the current pose, desired
-EE velocities and foot contact. The learned cost guides the choice among IK
+EE velocities and foot contact. Here, $W$ represents the costs of joint motion,
+including coupling between joints. The learned cost guides the choice among IK
 solutions toward human-like joint coordination:
 
 ```math
