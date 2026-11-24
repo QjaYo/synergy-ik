@@ -17,14 +17,14 @@
       <a href="https://github.com/QjaYo/synergy-ik/issues/5">Padeburee</a>
     </td>
     <td align="center" width="50%">
-      <img src="https://github.com/user-attachments/assets/3086766f-ed0e-4e82-a2b4-421ad8e2ed47" width="100%" alt="Dancing motion demo"><br>
-      <a href="https://github.com/QjaYo/synergy-ik/issues/6">Dancing</a>
+      <img src="https://github.com/user-attachments/assets/3086766f-ed0e-4e82-a2b4-421ad8e2ed47" width="100%" alt="Dancing1 motion demo"><br>
+      <a href="https://github.com/QjaYo/synergy-ik/issues/6">Dancing1</a>
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
-      <img src="https://github.com/user-attachments/assets/417df15a-941e-401d-ab51-8ceb6672d959" width="100%" alt="Body stretch motion demo"><br>
-      <a href="https://github.com/QjaYo/synergy-ik/issues/7">Body stretch</a>
+      <img src="https://github.com/user-attachments/assets/53856c43-50db-401b-afd1-2ead996a0b79" width="100%" alt="Dancing2 motion demo"><br>
+      <a href="https://github.com/QjaYo/synergy-ik/issues/10">Dancing2</a>
     </td>
     <td align="center" width="50%">
       <img src="https://github.com/user-attachments/assets/6b9f89c8-4762-4eb5-ad91-2ad170757768" width="100%" alt="Run stop motion demo"><br>
