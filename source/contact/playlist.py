@@ -22,7 +22,7 @@ class Entry:
     key: str
 
 
-def catalog(db, search=""):
+def catalog(db: str | Path, search: str = "") -> list[Entry]:
     """One original per review group, excluding defective recordings only."""
     with closing(sqlite3.connect(Path(db).resolve().as_uri() + "?mode=ro", uri=True)) as connection:
         rows = connection.execute("SELECT action_name, original_path FROM motions "
@@ -37,13 +37,13 @@ def catalog(db, search=""):
         key = min(keys, key=lambda k: (any(s in k.lower() for s in ("_start", "_stop", "_end_")), k))
         entries.append(Entry(group, key))
     priorities = ("walking", "walk", "jump_and_land", "running", "run", "dancing", "cartwheel")
-    def order(entry):
+    def order(entry: Entry) -> tuple[int, str]:
         rank = next((i for i, word in enumerate(priorities) if entry.group.startswith(word)), len(priorities))
         return rank, entry.group
     return sorted(entries, key=order)
 
 
-def add_viewer_arguments(parser):
+def add_viewer_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--data-root", type=Path, default=ROOT / "data/canonical_bvh")
     parser.add_argument("--db", type=Path, default=ROOT / "preprocess/motion_review/results/review.sqlite3")
     parser.add_argument("--metadata", type=Path, default=DEFAULT_METADATA)
@@ -59,7 +59,7 @@ def add_viewer_arguments(parser):
     parser.add_argument("--check", action="store_true", help="Compute contacts without opening a window")
 
 
-def select_entries(args):
+def select_entries(args: argparse.Namespace) -> list[Entry]:
     if not np.isfinite(args.speed) or args.speed <= 0:
         raise ValueError("Playback speed must be positive and finite")
     if args.limit is not None and args.limit < 1:

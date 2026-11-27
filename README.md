@@ -118,10 +118,14 @@ creates the motion catalog used during preparation.
 
 ```sh
 python preprocess/canonicalize.py --input-dir path/to/soma_uniform/bvh --output-dir data/canonical_bvh
-python source/train.py --dataset data/preprocessed --output experiment/runs/spd_01 --epochs 30 --device cuda --patience 0
+python source/train.py --dataset data/preprocessed --output experiment/runs/spd_01
 python source/evaluate.py --dataset data/preprocessed --checkpoint experiment/runs/spd_01/best.pt --split validation
 python source/run.py --bvh-file data/canonical_bvh/DATE/clip.bvh --checkpoint experiment/runs/spd_01/best.pt
 ```
+
+New runs use 198 inputs, including world up expressed in the pelvis frame, and
+the null-space QR solver. Existing pose caches retain the full root rotation
+for computing the Jacobian. Training defaults to 30 epochs on CUDA when available.
 
 Replace example paths with your files. The IK viewer compares reference,
 Moore-Penrose and weighted motion with matching EE constraints.

@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -30,16 +31,16 @@ VENDORED_FINGERPRINT = "8318647ec1e344ae1bf8c2b5fcf27f62923cd8796ff9992611483d66
 UPSTREAM_FINGERPRINT = "021a2ff3c60b29c887aa08b5fa6f9000dba772f058678f44c1968d3647bdc0a6"
 
 
-def canonical_fingerprint(fingerprint):
+def canonical_fingerprint(fingerprint: str) -> str:
     return UPSTREAM_FINGERPRINT if fingerprint == VENDORED_FINGERPRINT else fingerprint
 
 
-def upstream_directory():
+def upstream_directory() -> Path:
     return Path(os.environ.get("SYNERGYIK_UNDERPRESSURE_ROOT", ROOT / "third_party/UnderPressure")).resolve()
 
 
 @lru_cache(maxsize=None)
-def asset_fingerprint(directory):
+def asset_fingerprint(directory: str | Path) -> str:
     digest = hashlib.sha256()
     for name in ASSETS:
         path = Path(directory) / name
@@ -51,14 +52,20 @@ def asset_fingerprint(directory):
 
 
 @lru_cache(maxsize=None)
-def spine_levels(directory):
+def spine_levels(directory: str | Path) -> np.ndarray:
     import torch
     sample = torch.load(Path(directory) / "footskate_samples/0.pt", map_location="cpu", weights_only=True)
     reference = sample["skeleton"][0].numpy()
     return reference[1:5, 2] / reference[5, 2]
 
 
-def model_positions(positions, names, static, directory=None, ground_y=0.0):
+def model_positions(
+    positions: np.ndarray,
+    names: Sequence[str],
+    static: np.ndarray,
+    directory: str | Path | None = None,
+    ground_y: float = 0.0,
+) -> np.ndarray:
     """Map Bones-seed to the existing experimental 23-joint, Z-up position adapter."""
     directory = Path(directory) if directory is not None else upstream_directory()
     indices = {name: i for i, name in enumerate(names)}
@@ -86,14 +93,14 @@ def model_positions(positions, names, static, directory=None, ground_y=0.0):
 
 class _Worker:
     """One model load per process; serialize requests from viewer/background threads."""
-    def __init__(self, directory):
+    def __init__(self, directory: Path) -> None:
         options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
         self.process = subprocess.Popen(
             [sys.executable, "-B", "-u", str(Path(__file__).with_name("underpressure_worker.py")), str(directory)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, encoding="utf-8", **options)
         self.lock = threading.Lock()
 
-    def predict(self, positions, fps, mode):
+    def predict(self, positions: np.ndarray, fps: float, mode: str) -> dict[str, np.ndarray]:
         with self.lock, tempfile.TemporaryDirectory(prefix="synergyik-contact-") as directory:
             source, target = Path(directory) / "input.npz", Path(directory) / "output.npz"
             np.savez(source, positions=positions, fps=fps)
@@ -108,7 +115,7 @@ class _Worker:
             with np.load(target, allow_pickle=False) as archive:
                 return {key: archive[key] for key in archive.files}
 
-    def close(self):
+    def close(self) -> None:
         self.process.stdin.close()
         self.process.wait()
         self.process.stdout.close()
@@ -118,7 +125,13 @@ _workers = {}
 _workers_lock = threading.Lock()
 
 
-def predict_model_positions(positions, fps, directory=None, *, mode="offline"):
+def predict_model_positions(
+    positions: np.ndarray,
+    fps: float,
+    directory: str | Path | None = None,
+    *,
+    mode: str = "offline",
+) -> dict[str, np.ndarray]:
     directory = Path(directory).resolve() if directory is not None else upstream_directory()
     asset_fingerprint(str(directory))
     key = (os.getpid(), str(directory))
@@ -129,7 +142,7 @@ def predict_model_positions(positions, fps, directory=None, *, mode="offline"):
     return worker.predict(positions, fps, mode)
 
 
-def close_workers():
+def close_workers() -> None:
     for (pid, _), worker in list(_workers.items()):
         if pid == os.getpid():
             worker.close()
@@ -149,27 +162,39 @@ class UnderPressureContact:
     labels = SITE_LABELS
     joints = SITE_JOINTS
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.method not in ("underpressure-prefix-v1", "underpressure-offline-v1"):
             raise ValueError(f"Unknown UnderPressure timing: {self.method}")
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         fingerprint = canonical_fingerprint(asset_fingerprint(str(upstream_directory())))
         if self.fingerprint is not None and canonical_fingerprint(self.fingerprint) != fingerprint:
             raise ValueError("UnderPressure assets differ from the recorded contact contract")
         return dict(method=self.method, ground_y=self.ground_y, fingerprint=fingerprint)
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> 'UnderPressureContact':
         return cls(**data)
 
-    def predict(self, world_positions, names, static, fps):
+    def predict(
+        self,
+        world_positions: np.ndarray,
+        names: Sequence[str],
+        static: np.ndarray,
+        fps: float,
+    ) -> np.ndarray:
         self.to_dict()
         positions = model_positions(world_positions, names, static, ground_y=self.ground_y)
         mode = "prefix" if self.method == "underpressure-prefix-v1" else "offline"
         return predict_model_positions(positions, fps, mode=mode)["contacts"]
 
-    def predict_current(self, world_positions_history, names, static, fps):
+    def predict_current(
+        self,
+        world_positions_history: np.ndarray,
+        names: Sequence[str],
+        static: np.ndarray,
+        fps: float,
+    ) -> np.ndarray:
         """Use only the provided realized history; return its latest label without revising earlier ones."""
         if self.method != "underpressure-prefix-v1":
             raise ValueError("Offline reference contacts cannot be used for live IK")

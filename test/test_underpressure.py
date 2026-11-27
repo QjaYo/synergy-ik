@@ -23,6 +23,8 @@ from inference import LearnedWeights
 from pose import SkeletonLayout
 from prepare import prepare_clip, compute_statistics, CACHE_VERSION
 from training_data import PreparedDataset
+from checkpoint import CHECKPOINT_VERSION
+from learning import SolveConfig
 from weights.learned import ModelConfig, WPrediction
 from test_solver import make_pose, apply_reference_delta
 from fairmotion.core.motion import Motion
@@ -108,7 +110,8 @@ class UnderPressureTests(unittest.TestCase):
             source = directory / "source.bvh"
             source.write_text("synthetic source", encoding="utf-8")
             with patch("prepare.load_canonicalized_bvh", return_value=self.motion):
-                report = prepare_clip((source, directory / "clip.npz", detector.to_dict(), None))
+                report = prepare_clip((source, directory / "clip.npz", detector.to_dict(), None),
+                                          angular_task=False, ee_rotation_features=False)
                 with self.assertRaisesRegex(ValueError, "future"):
                     prepare_clip((source, directory / "offline.npz",
                                   UnderPressureContact(method="underpressure-offline-v1").to_dict(), None))
@@ -122,10 +125,10 @@ class UnderPressureTests(unittest.TestCase):
             (directory / "statistics.json").write_text(json.dumps(stats), encoding="utf-8")
             dataset = PreparedDataset(directory)
             batch = next(iter(dataset.batches("train", 10)))
-            model = WPrediction(ModelConfig(input_width=schema.width, hidden_width=8, depth=1))
+            model = WPrediction(ModelConfig(input_width=schema.width, hidden_width=8, depth=2))
             checkpoint = directory / "test.pt"
-            torch.save(dict(version=1, model_config=model.config.to_dict(), model_state=model.state_dict(),
-                            contract=contract, statistics=stats, solve_config=dict(pinv_rtol=1e-12)), checkpoint)
+            torch.save(dict(version=CHECKPOINT_VERSION, model_config=model.config.to_dict(), model_state=model.state_dict(),
+                            contract=contract, statistics=stats, solve_config=SolveConfig().to_dict()), checkpoint)
             online = LearnedWeights(checkpoint, self.motion.skel)
             for t in range(11):
                 current = self.motion.poses[t]

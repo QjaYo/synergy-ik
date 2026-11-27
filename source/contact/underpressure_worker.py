@@ -4,12 +4,23 @@ import json
 from pathlib import Path
 import sys
 import traceback
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
 
 
-def predict(model, contacts_class, positions, fps):
+if TYPE_CHECKING:
+    from data import Contacts
+    from models import DeepNetwork
+
+
+def predict(
+    model: 'DeepNetwork',
+    contacts_class: 'type[Contacts]',
+    positions: np.ndarray,
+    fps: float,
+) -> dict[str, np.ndarray]:
     source_times = np.arange(len(positions), dtype=np.float64) / fps
     model_times = np.arange(int(np.floor(source_times[-1] * 100)) + 1) / 100
     flat = positions.reshape(len(positions), -1)
@@ -22,7 +33,7 @@ def predict(model, contacts_class, positions, fps):
     return dict(contacts=contacts[indices].reshape(-1, 4), forces=forces[0].numpy(), model_times=model_times)
 
 
-def main():
+def main() -> None:
     upstream = Path(sys.argv[1]).resolve()
     sys.path.insert(0, str(upstream))
     import models

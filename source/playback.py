@@ -41,12 +41,14 @@ class IKPlayback:
         solver: IKSolver,
         *,
         panel_label: str,
-        prepare_solver=None,
-        reset_solver=None,
+        prepare_solver: Callable[..., None] | None = None,
+        reset_solver: Callable[[], None] | None = None,
         fixed_ee_names: tuple[str, ...] | None = None,
         pinv_rtol: float = 1e-12,
         constrain_orientation: bool = False,
+        verbose: bool = False,
     ) -> None:
+        self.verbose = verbose
         self.motion = motion
         self.solver = solver
         self.panel_label = panel_label
@@ -173,9 +175,11 @@ class IKPlayback:
                 ]
 
                 results = []
-                print(f"Frame {next_frame + 1}/{self.motion.num_frames()}")
+                if self.verbose:
+                    print(f"Frame {next_frame + 1}/{self.motion.num_frames()}")
                 for label, solver, prev_pose in solver_runs:
-                    print(f"{label} | ", end="")
+                    if self.verbose:
+                        print(f"{label} | ", end="")
                     result = solver(copy_pose(prev_pose), names, targets.copy(), self.dt, **task_options)
                     if not isinstance(result, IKStepResult):
                         raise ValueError("The solver must return an IKStepResult")
@@ -184,7 +188,8 @@ class IKPlayback:
                     data = np.asarray(result.pose.data)
                     if data.shape != (len(self.joint_names), 4, 4) or not np.isfinite(data).all():
                         raise ValueError("Returned pose must have finite (N, 4, 4) transforms")
-                    print_ik_result(result, names)
+                    if self.verbose:
+                        print_ik_result(result, names)
                     results.append(copy_pose(result.pose))
 
                 # Commit only after both solver results have been validated.
@@ -198,7 +203,8 @@ class IKPlayback:
                 self.status = f"IK error: {type(error).__name__}; see terminal"
                 traceback.print_exc()
             finally:
-                print()
+                if self.verbose:
+                    print()
         if self.frame_index == self.motion.num_frames() - 1:
             self.paused = True
 

@@ -4,14 +4,15 @@ import argparse
 from functools import partial
 import json
 from pathlib import Path
+from collections.abc import Iterable
 
-from contact import load_contact, UnderPressureContact
-from contact.playlist import ROOT, add_viewer_arguments, select_entries, load_motion_descriptions
-from contact.sequence import prepare_contact_clip
+from contact import FootContact, JointGroundContact, UnderPressureContact, load_contact
+from contact.playlist import ROOT, add_viewer_arguments, select_entries, load_motion_descriptions, Entry
+from contact.sequence import prepare_contact_clip, ContactClip
 from contact.viewer import ContactViewer
 
 
-def arguments(argv=None):
+def arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     add_viewer_arguments(parser)
     parser.add_argument("--contact-config", type=Path, action="append",
@@ -21,11 +22,15 @@ def arguments(argv=None):
     return args
 
 
-def load_entry(entry, data_root, detectors):
+def load_entry(
+    entry: Entry,
+    data_root: Path,
+    detectors: Iterable[FootContact | JointGroundContact | UnderPressureContact],
+) -> ContactClip:
     return prepare_contact_clip(data_root / entry.key, detectors)
 
 
-def main():
+def main() -> None:
     args = arguments()
     entries = select_entries(args)
     detectors = tuple(load_contact(path) for path in args.contact_config)

@@ -3,6 +3,12 @@
 import hashlib
 import re
 from collections import defaultdict
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from motion_review_data import MotionDescription
 
 
 GROUPING_VERSION = "behavior-context-v1"
@@ -45,7 +51,7 @@ def behavior_family(name: str) -> str:
             "neutral_crawl": "crawl", "crawling": "crawl"}.get(family, family)
 
 
-def context_signature(description) -> tuple[str, str, str]:
+def context_signature(description: 'MotionDescription') -> tuple[str, str, str]:
     """Keep prop, body-support and load distinctions; unknown context stays apart."""
     normalize = lambda value: " ".join(value.lower().split())
     props = ";".join(sorted(normalize(p) for p in description.props.split(";")))
@@ -60,7 +66,10 @@ def context_signature(description) -> tuple[str, str, str]:
     return props, body, ",".join(sorted(set(terms)))
 
 
-def build_review_groups(motion_types: dict[str, str], descriptions: dict) -> dict[str, tuple[str, str]]:
+def build_review_groups(
+    motion_types: dict[str, str],
+    descriptions: 'Mapping[str, MotionDescription]',
+) -> dict[str, tuple[str, str]]:
     """Map original paths to (review group, reason); never infer missing context.
 
     Different context within one filename type also creates separate groups.

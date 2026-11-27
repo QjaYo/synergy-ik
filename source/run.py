@@ -13,6 +13,7 @@ from playback import IKPlayback
 from viewer import run_ik_viewer
 from weights.fixed import create_fixed_weights
 from weight_editor import DiagonalWeightEditor
+from velocity_solvers import DEFAULT_METHOD, METHODS
 
 
 # 1 = DIAGONAL, 2 = SPD. The comparison baseline always uses diagonal W = I.
@@ -31,9 +32,12 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--unit", choices=("m", "cm"), default="m")
     parser.add_argument("--check", action="store_true", help="Check initial state without a window")
     parser.add_argument("--checkpoint", type=Path, help="Learned SPD checkpoint; omitted for fixed W")
+    parser.add_argument("--ik-solver", choices=METHODS,
+                        help="Defaults to the checkpoint's solver, or nullspace_qr for fixed W")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--check-frames", type=int, default=0, help="Run this many physical frames without a window")
     parser.add_argument("--threads", type=int, default=2)
+    parser.add_argument("--verbose", action="store_true", help="Print per-frame IK errors and iteration counts")
     parser.add_argument("--uniform-root", type=Path, help="Original Uniform BVH directory for surface rendering")
     parser.add_argument("--uniform-rig", type=Path, help="Uniform USD rig for surface rendering")
     return parser.parse_args(argv)
@@ -49,19 +53,20 @@ def main(mode: SolverMode = MODE, argv: list[str] | None = None) -> None:
     learned = None
     if args.checkpoint:
         from inference import LearnedWeights
-        learned = LearnedWeights(args.checkpoint, motion.skel, args.device)
+        learned = LearnedWeights(args.checkpoint, motion.skel, args.device, method=args.ik_solver)
         mode = SolverMode.SPD
-    solver = partial(solve_ik_step, mode=mode, W=learned or W,
-                     pinv_rtol=learned.pinv_rtol if learned else 1e-12)
+    solver = (partial(solve_ik_step, velocity_solver=learned.solve_velocity) if learned else
+              partial(solve_ik_step, mode=mode, W=W, method=args.ik_solver or DEFAULT_METHOD))
     playback = IKPlayback(motion, solver, panel_label="LEARNED SPD IK" if learned else f"FIXED {mode.name} IK",
                           prepare_solver=learned.begin_frame if learned else None,
                           reset_solver=learned.reset_history if learned else None,
                           fixed_ee_names=learned.layout.ee_names if learned else None,
                           constrain_orientation=learned.schema.angular_task if learned else False,
-                          pinv_rtol=learned.pinv_rtol if learned else 1e-12)
+                          pinv_rtol=learned.pinv_rtol if learned else 1e-12, verbose=args.verbose)
     print(f"Frames: {motion.num_frames()} | FPS: {motion.fps} | dt: {playback.dt}", flush=True)
     print(f"Pose nodes: {len(motion.skel.joints)} | IK DoFs: {W.shape[0]}", flush=True)
     print(f"EE: {', '.join(playback.ee_names)} | starts paused", flush=True)
+    print(f"IK solver: {learned.method if learned else args.ik_solver or DEFAULT_METHOD}", flush=True)
     for _ in range(min(args.check_frames, motion.num_frames() - 1)):
         before = playback.frame_index
         playback.step_frame()

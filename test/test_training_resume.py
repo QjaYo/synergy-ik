@@ -41,7 +41,8 @@ class ResumeTests(unittest.TestCase):
             source = dataset / "source.bvh"
             source.write_text("synthetic", encoding="utf-8")
             with patch("prepare.load_canonicalized_bvh", return_value=motion):
-                report = prepare_clip((source, dataset / "clip.npz", detector.to_dict(), None))
+                report = prepare_clip((source, dataset / "clip.npz", detector.to_dict(), None),
+                                          angular_task=False, ee_rotation_features=False)
             records = [dict(source="clip.bvh", cache="clip.npz", samples=report["samples"], split=s)
                        for s in ("train", "validation")]
             schema = FeatureSchema(**report["schema"])
@@ -50,7 +51,7 @@ class ResumeTests(unittest.TestCase):
             (dataset / "manifest.json").write_text(json.dumps(dict(
                 contract=contract, statistics="statistics.json", clips=records)), encoding="utf-8")
             (dataset / "statistics.json").write_text(json.dumps(statistics), encoding="utf-8")
-            common = ["--dataset", str(dataset), "--epochs", "2", "--width", "8", "--batch-size", "2",
+            common = ["--device", "cpu", "--workers", "0", "--dataset", str(dataset), "--epochs", "2", "--width", "8", "--batch-size", "2",
                       "--lr", "0.00001", "--checkpoint-every", "1", "--log-every", "1"]
             whole, partial = directory / "whole", directory / "partial"
             with redirect_stdout(StringIO()):
@@ -59,6 +60,13 @@ class ResumeTests(unittest.TestCase):
                 saved = torch.load(partial / "last.pt", weights_only=True)
                 self.assertEqual(saved["training_state"]["next_batch"], 2)
                 self.assertEqual(saved["training_state"]["next_epoch"], 0)
+                # Recreate the old format at the interruption point.
+                self.assertEqual(saved["model_config"]["depth"], 3)
+                saved["version"] = 1
+                saved["model_config"]["depth"] -= 1
+                saved["model_config"]["cost_structure"] = "spd"
+                saved["settings"]["depth"] -= 1
+                torch.save(saved, partial / "last.pt")
                 train(parse_arguments(["--resume", str(partial / "last.pt")]))
             expected = torch.load(whole / "last.pt", weights_only=True)
             actual = torch.load(partial / "last.pt", weights_only=True)
@@ -95,6 +103,8 @@ class ResumeTests(unittest.TestCase):
                 self.assertEqual(a, b)
             with self.assertRaisesRegex(ValueError, "batch_size"):
                 train(parse_arguments(["--resume", str(partial / "last.pt"), "--batch-size", "3"]))
+            with self.assertRaisesRegex(ValueError, "ik_solver"):
+                train(parse_arguments(["--resume", str(partial / "last.pt"), "--ik-solver", "cholesky_pinv"]))
             failed = directory / "failed"
             with patch("learning.solve_weighted_velocity", side_effect=RuntimeError("test solve failure")):
                 with self.assertRaisesRegex(RuntimeError, "test solve failure"):

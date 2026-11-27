@@ -116,7 +116,7 @@ class LearningTests(unittest.TestCase):
         self.assertGreater(model.hidden[0].weight.grad.abs().sum(), 0)
 
     def test_predictor_preserves_small_positive_diagonals_in_float32(self):
-        model = WPrediction(ModelConfig(input_width=1, dofs=5, hidden_width=8, depth=0))
+        model = WPrediction(ModelConfig(input_width=1, dofs=5, hidden_width=8, depth=1))
         raw = np.array([-10., -20., -30., -40., -100.])
         with torch.no_grad():
             model.head.bias[model.rows == model.columns] = torch.tensor(raw, dtype=torch.float32)
@@ -133,11 +133,12 @@ class LearningTests(unittest.TestCase):
         _, layout, rotations, root, _, positions, _ = self.geometry()
         rel = relative_positions(positions[list(layout.ee_indices)], root, rotations[0])
         feature = assemble_features(rotations, root, rel, torch.zeros(4, 3), torch.ones(4), layout.rotation_indices)
-        self.assertEqual(feature.shape, (FeatureSchema().width,))
-        np.testing.assert_array_equal(feature[:6], rotations[0, :, :2].T.flatten())
+        schema = FeatureSchema(contact_width=4, angular_task=False, ee_rotations=False)
+        self.assertEqual(feature.shape, (schema.width,))
+        np.testing.assert_array_equal(feature[:3], rotations[0].T @ np.array([0., 1., 0.]))
         np.testing.assert_allclose(rel @ rotations[0].T + np.array([root[0], 0, root[2]]),
                                    positions[list(layout.ee_indices)], atol=1e-14)
-        self.assertEqual(feature[138].item(), root[1].item())
+        self.assertEqual(feature[FeatureSchema().rotation_width].item(), root[1].item())
 
     def test_contact_boundaries_and_stationary_reset(self):
         detector = FootContact(((0, 0, 0),) * 4, "test")

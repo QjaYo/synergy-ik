@@ -1,12 +1,17 @@
 """Tensor pose geometry shared by preprocessing, learning and inference."""
 
+from typing import TYPE_CHECKING
 from dataclasses import dataclass
+from collections.abc import Sequence
 
 import numpy as np
 import torch
 from scipy.spatial.transform import Rotation
 
 from util import get_rotation_joint_indices
+
+if TYPE_CHECKING:
+    from fairmotion.core.motion import Pose, Skeleton
 
 
 DEFAULT_EES = ("LeftHandEnd", "RightHandEnd", "LeftToeEnd", "RightToeEnd")
@@ -20,7 +25,7 @@ class SkeletonLayout:
     ee_names: tuple[str, ...] = DEFAULT_EES
 
     @classmethod
-    def from_skeleton(cls, skeleton):
+    def from_skeleton(cls, skeleton: "Skeleton") -> 'SkeletonLayout':
         return cls(
             tuple(j.name for j in skeleton.joints),
             tuple(-1 if j.parent_joint is None else skeleton.get_index_joint(j.parent_joint)
@@ -29,23 +34,23 @@ class SkeletonLayout:
         )
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> 'SkeletonLayout':
         return cls(**{key: tuple(value) for key, value in data.items()})
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return dict(names=self.names, parents=self.parents,
                     rotation_indices=self.rotation_indices, ee_names=self.ee_names)
 
     @property
-    def ee_indices(self):
+    def ee_indices(self) -> tuple[int, ...]:
         return tuple(self.names.index(name) for name in self.ee_names)
 
     @property
-    def dofs(self):
+    def dofs(self) -> int:
         return 3 + 3 * len(self.rotation_indices)
 
 
-def pose_arrays(pose):
+def pose_arrays(pose: "Pose") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Extract a canonical pose without losing leaf rotations or static offsets."""
     data = np.asarray(pose.data)
     if np.any(data[1:, :3, 3] != 0):
@@ -56,7 +61,12 @@ def pose_arrays(pose):
     return data[:, :3, :3].copy(), data[0, :3, 3].copy(), static
 
 
-def forward_kinematics(rotations, root_positions, static, parents):
+def forward_kinematics(
+    rotations: torch.Tensor,
+    root_positions: torch.Tensor,
+    static: torch.Tensor,
+    parents: Sequence[int],
+) -> tuple[torch.Tensor, torch.Tensor]:
     """(..., N, 3, 3), (..., 3), (..., N, 4, 4) -> world rotations/positions.
 
     Static transforms can be shared or batched. Dynamic non-root translation is
@@ -77,22 +87,22 @@ def forward_kinematics(rotations, root_positions, static, parents):
     return torch.stack(world_rotations, -3), torch.stack(world_positions, -2)
 
 
-def vectors_in_root(vectors, root_rotation):
+def vectors_in_root(vectors: torch.Tensor, root_rotation: torch.Tensor) -> torch.Tensor:
     """Rotate physical vectors (..., K, 3) by the current root R.T."""
     return vectors @ root_rotation
 
 
-def angular_displacement(current, target):
+def angular_displacement(current: np.ndarray, target: np.ndarray) -> np.ndarray:
     """World rotation vectors with target = Exp(error) @ current."""
     relative = target @ np.swapaxes(current, -1, -2)
     return Rotation.from_matrix(relative.reshape(-1, 3, 3)).as_rotvec().reshape(*relative.shape[:-2], 3)
 
 
-def ee_rotations_in_root(world_rotations, root_rotation):
+def ee_rotations_in_root(world_rotations: torch.Tensor, root_rotation: torch.Tensor) -> torch.Tensor:
     """Current EE rotations relative to current pelvis; two columns per EE, (..., K, 6)."""
     relative = root_rotation.transpose(-1, -2).unsqueeze(-3) @ world_rotations
     return relative[..., :, :2].transpose(-1, -2).flatten(-2)
 
 
-def generalized_root_to_world(q_dot, root_rotation):
+def generalized_root_to_world(q_dot: torch.Tensor, root_rotation: torch.Tensor) -> torch.Tensor:
     return torch.cat(((root_rotation @ q_dot[..., :3, None]).squeeze(-1), q_dot[..., 3:]), -1)

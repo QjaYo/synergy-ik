@@ -2,11 +2,18 @@
 
 import numpy as np
 import time
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from util import get_joint_world_positions
 from playback import IKPlayback
 from weight_editor import DiagonalWeightEditor
 from fairmotion.core.motion import Motion, Pose
+
+
+if TYPE_CHECKING:
+    from fairmotion.viz.camera import Camera
+    from fairmotion.viz.glut_viewer import Viewer
 
 
 REFERENCE_LINK_COLOR = (0.08, 0.20, 0.45, 1.0)
@@ -18,7 +25,7 @@ WEIGHTED_JOINT_COLOR = (0.75, 0.46, 0.90, 1.0)
 TARGET_COLOR = (0.95, 0.40, 0.05, 1.0)
 
 
-def create_initial_camera(motion: Motion):
+def create_initial_camera(motion: Motion) -> 'Camera':
     """Position the camera to include the complete skeleton in the first frame."""
     from fairmotion.viz import camera
 
@@ -42,8 +49,8 @@ def create_initial_camera(motion: Motion):
 def create_comparison_viewer(
     playback: IKPlayback, title: str = "Position IK",
     weight_editor: DiagonalWeightEditor | None = None,
-    *, bvh_path=None, uniform_root=None, uniform_rig=None, surface_height_threshold=0.040,
-):
+    *, bvh_path: str | Path | None = None, uniform_root: str | Path | None = None, uniform_rig: Path | None = None, surface_height_threshold: float = 0.040,
+) -> 'Viewer':
     """Create a three-panel reference, identity, and weighted IK viewer."""
     from OpenGL import GL, GLU, GLUT
     from fairmotion.viz import gl_render, glut_viewer
@@ -308,7 +315,7 @@ def create_comparison_viewer(
 def run_ik_viewer(
     playback: IKPlayback, title: str = "Position IK",
     weight_editor: DiagonalWeightEditor | None = None,
-    *, bvh_path=None, uniform_root=None, uniform_rig=None, surface_height_threshold=0.040,
+    *, bvh_path: str | Path | None = None, uniform_root: str | Path | None = None, uniform_rig: Path | None = None, surface_height_threshold: float = 0.040,
 ) -> None:
     """Open the comparison window for an already configured playback session."""
     try:

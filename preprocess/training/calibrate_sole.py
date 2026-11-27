@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "source"))
 from contact import FootContact, SITE_JOINTS, SITE_LABELS
 
 
-def calibrate(rig_path):
+def calibrate(rig_path: str | Path) -> FootContact:
     from pxr import Usd, UsdGeom, UsdSkel
 
     rig_path = Path(rig_path)
@@ -51,7 +51,7 @@ def calibrate(rig_path):
                        hashlib.sha256(rig_path.read_bytes()).hexdigest(), joints=SITE_JOINTS)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rig", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

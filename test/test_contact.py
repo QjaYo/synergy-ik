@@ -19,6 +19,8 @@ from pose import SkeletonLayout
 from prepare import compute_statistics, parse_arguments, prepare_clip
 from features import FeatureSchema
 from training_data import PreparedDataset
+from checkpoint import CHECKPOINT_VERSION
+from learning import SolveConfig
 from weights.learned import ModelConfig, WPrediction
 from test_solver import make_pose, apply_reference_delta
 from fairmotion.core.motion import Motion
@@ -92,9 +94,10 @@ class ContactTests(unittest.TestCase):
                 source = directory / "input.bvh"
                 source.write_text("synthetic test source", encoding="utf-8")
                 with patch("prepare.load_canonicalized_bvh", return_value=motion):
-                    report = prepare_clip((source, directory / "clip.npz", detector.to_dict(), None))
+                    report = prepare_clip((source, directory / "clip.npz", detector.to_dict(), None),
+                                          angular_task=False, ee_rotation_features=False)
                 schema = FeatureSchema(**report["schema"])
-                self.assertEqual(schema.width, 163 + detector.width)
+                self.assertEqual(schema.width, 160 + detector.width)
                 records = [dict(source=source.name, cache="clip.npz", split="train", samples=4)]
                 stats = compute_statistics(directory, records, layout, schema, detector.ground_y)
                 contract = dict(version=1, layout=layout.to_dict(), schema=schema.to_dict(),
@@ -104,10 +107,10 @@ class ContactTests(unittest.TestCase):
                 (directory / "statistics.json").write_text(json.dumps(stats), encoding="utf-8")
                 dataset = PreparedDataset(directory)
                 batch = next(iter(dataset.batches("train", 4)))
-                model = WPrediction(ModelConfig(input_width=dataset.schema.width, hidden_width=8, depth=1))
+                model = WPrediction(ModelConfig(input_width=dataset.schema.width, hidden_width=8, depth=2))
                 checkpoint = directory / "test.pt"
-                torch.save(dict(version=1, model_config=model.config.to_dict(), model_state=model.state_dict(),
-                                contract=contract, statistics=stats, solve_config=dict(pinv_rtol=1e-12)), checkpoint)
+                torch.save(dict(version=CHECKPOINT_VERSION, model_config=model.config.to_dict(), model_state=model.state_dict(),
+                                contract=contract, statistics=stats, solve_config=SolveConfig().to_dict()), checkpoint)
                 online = LearnedWeights(checkpoint, motion.skel)
                 self.assertEqual(online.detector, detector)
                 for sample, t in enumerate(range(1, 5)):

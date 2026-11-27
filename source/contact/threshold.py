@@ -3,7 +3,14 @@
 import numpy as np
 
 
-def detect_ground_contact(current, previous, dt, height_threshold, speed_threshold, ground_y=0.0):
+def detect_ground_contact(
+    current: np.ndarray,
+    previous: np.ndarray,
+    dt: float,
+    height_threshold: float,
+    speed_threshold: float,
+    ground_y: float = 0.0,
+) -> np.ndarray:
     """Return (..., sites) bool values; both comparisons are strictly below threshold."""
     if dt <= 0:
         raise ValueError("Contact requires positive elapsed physical time")

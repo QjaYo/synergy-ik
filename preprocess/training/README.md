@@ -21,7 +21,10 @@ python preprocess/training/prepare.py --data-root data/canonical_bvh --review-db
 The output contains `clips/`, `manifest.json`, `statistics.json` and `summary.json`.
 Use a new output directory when changing a dataset's settings.
 
-The default has 201 inputs, 24 EE task velocities and 72 target joint velocities.
+The default has 198 inputs, 24 EE task velocities and 72 target joint velocities.
+Root orientation is world up expressed in pelvis axes (3 values); other joints
+keep parent-local 6D rotations. Full pose matrices remain in the NPZ, so existing
+caches can use this encoding during training without regenerating the clips.
 Contacts are two ankle labels: height < 0.120 m AND speed < 0.4 m/s.
 For each current frame t, contact uses t-1 to t; supervision uses t to t+1.
 Task vectors use current pelvis axes; joint angular velocities remain joint-local.

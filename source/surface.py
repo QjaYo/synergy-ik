@@ -1,5 +1,6 @@
 """Original Uniform surface adapted to canonical IK poses for display only."""
 
+from typing import TYPE_CHECKING
 from pathlib import Path
 import sys
 
@@ -9,9 +10,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "preprocess/motion_review"))
 from uniform_mesh import DEFAULT_UNIFORM_ROOT, DEFAULT_UNIFORM_RIG, load_aligned_uniform_mesh, surface_colors
 
+if TYPE_CHECKING:
+    from fairmotion.core.motion import Motion, Pose
+
 
 class IKSurface:
-    def __init__(self, canonical, bvh_path, uniform_root=DEFAULT_UNIFORM_ROOT, rig_path=DEFAULT_UNIFORM_RIG):
+    def __init__(
+        self,
+        canonical: "Motion",
+        bvh_path: str | Path,
+        uniform_root: str | Path = DEFAULT_UNIFORM_ROOT,
+        rig_path: Path = DEFAULT_UNIFORM_RIG,
+    ) -> None:
         path = Path(bvh_path)
         original = Path(uniform_root) / path.parent.name / path.name
         self.mesh = load_aligned_uniform_mesh(original, rig_path, canonical)
@@ -22,7 +32,7 @@ class IKSurface:
                         if renamed.get(name, name) in names}
         self.cache = {}
 
-    def vertices(self, panel, pose, frame):
+    def vertices(self, panel: int, pose: "Pose", frame: int) -> np.ndarray:
         previous = self.cache.get(panel)
         if previous is not None and previous[0] == frame and np.array_equal(previous[1], pose.data):
             return previous[2]
@@ -48,7 +58,7 @@ class IKSurface:
         self.cache[panel] = (frame, np.array(pose.data, copy=True), vertices)
         return vertices
 
-    def draw(self, panel, pose, frame, threshold):
+    def draw(self, panel: int, pose: "Pose", frame: int, threshold: float) -> None:
         from OpenGL import GL
         vertices = self.vertices(panel, pose, frame)
         colors = surface_colors(vertices, self.mesh.triangles, threshold)

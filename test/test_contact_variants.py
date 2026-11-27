@@ -70,7 +70,7 @@ class ContactVariantTests(unittest.TestCase):
             dual = PreparedDataset(output, "dual_detection")
             single = PreparedDataset(output, "single_detection")
             self.assertEqual(PreparedDataset(output).contract, dual.contract)
-            self.assertEqual((dual.schema.width, single.schema.width), (167, 165))
+            self.assertEqual((dual.schema.width, single.schema.width), (164, 162))
             a, b = next(iter(dual.batches("train", 3))), next(iter(single.batches("train", 3)))
             torch.testing.assert_close(a["features"][:, :-4], b["features"][:, :-2], rtol=0, atol=0)
             torch.testing.assert_close(a["target"], b["target"], rtol=0, atol=0)

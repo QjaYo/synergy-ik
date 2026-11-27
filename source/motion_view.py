@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import time
+from collections.abc import Callable
 
 import numpy as np
 
@@ -14,7 +15,13 @@ from viewer_window import run_window
 class MotionView(glut_viewer.Viewer):
     """Subclasses provide motion loading, a header, and application actions."""
 
-    def __init__(self, title, speed, show_mesh, mesh_colorizer):
+    def __init__(
+        self,
+        title: bytes,
+        speed: float,
+        show_mesh: bool,
+        mesh_colorizer: Callable[[np.ndarray, np.ndarray, float], np.ndarray],
+    ) -> None:
         super().__init__(title=title, size=(1280, 820))
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bvh-loader")
         self.motion = None
@@ -137,7 +144,14 @@ class MotionView(glut_viewer.Viewer):
         if swap_buffer:
             GLUT.glutSwapBuffers()
 
-    def rectangle(self, x: float, y: float, width: float, height: float, color: tuple) -> None:
+    def rectangle(
+        self,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        color: tuple[float, float, float, float],
+    ) -> None:
         GL.glColor4f(*color)
         GL.glBegin(GL.GL_QUADS)
         for point in ((x, y), (x + width, y), (x + width, y + height), (x, y + height)):
@@ -200,7 +214,7 @@ class MotionView(glut_viewer.Viewer):
     def shutdown(self) -> None:
         self.executor.shutdown(wait=True, cancel_futures=True)
 
-    def playback_controls(self):
+    def playback_controls(self) -> list[tuple[str, int, str, bool, bool]]:
         ready = self.motion is not None
         return [
             ("Play/Pause [Space]", 155, "play", ready, False),
@@ -215,12 +229,12 @@ class MotionView(glut_viewer.Viewer):
             ("+", 32, "band_up", True, False),
         ]
 
-    def set_contact_threshold(self, value):
+    def set_contact_threshold(self, value: float) -> None:
         """Change the shared surface band; subclasses may update contact labels."""
         self.contact_threshold = max(0.0, round(value, 6))
         self.mesh_frame = -1
 
-    def playback_layout(self):
+    def playback_layout(self) -> list[tuple[int, int, str, int, str, bool, bool]]:
         x, row = 12, 0
         layout = []
         for label, width, action, enabled, selected in self.playback_controls():
@@ -230,10 +244,10 @@ class MotionView(glut_viewer.Viewer):
             x += width + 8
         return layout
 
-    def playback_bar_height(self):
+    def playback_bar_height(self) -> int:
         return 100 + self.playback_layout()[-1][1]
 
-    def draw_playback_controls(self, status=None):
+    def draw_playback_controls(self, status: str | None = None) -> None:
         width, height = self.window_size
         top = height - self.playback_bar_height()
         self.rectangle(0, top, width, height - top, (0.97, 0.98, 0.99, 1))
@@ -248,7 +262,7 @@ class MotionView(glut_viewer.Viewer):
         self.rectangle(12, height - 14, max(1, width - 24), 7, (0.78, 0.81, 0.85, 1))
         self.rectangle(12, height - 14, max(1, width - 24) * progress, 7, (0.2, 0.5, 0.75, 1))
 
-    def handle_playback_action(self, action):
+    def handle_playback_action(self, action: str) -> bool:
         if action == "play":
             self.paused = not self.paused
         elif action == "restart":
@@ -275,7 +289,7 @@ class MotionView(glut_viewer.Viewer):
             return False
         return True
 
-    def keyboard_callback(self, key):
+    def keyboard_callback(self, key: bytes) -> bool:
         actions = {b" ": "play", b"r": "restart", b"f": "follow", b"m": "mesh",
                    b"s": "skeleton", b"-": "slower", b"+": "faster", b"=": "faster", b"\x1b": "close"}
         if key.lower() in actions:

@@ -370,7 +370,7 @@ class MotionReviewStore:
 
     def clips_for_action(self, action_name: str, prefer_quality: bool = False) -> list[str]:
         quality = set(self.queue("quality-exclude", action_name))
-        def representative_order(path: str) -> tuple:
+        def representative_order(path: str) -> tuple[bool, int, str]:
             name = motion_name(path)
             phase = 0 if re.search(r"(?:^|_)loop(?:_|$)", name) else 2 if re.search(r"(?:^|_)(start|stop)(?:_|$)", name) else 1
             return (path in quality) != prefer_quality, phase, path

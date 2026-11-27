@@ -9,6 +9,7 @@ import sqlite3
 import sys
 import textwrap
 import time
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -20,6 +21,10 @@ from uniform_mesh import (DEFAULT_UNIFORM_ROOT, DEFAULT_UNIFORM_RIG,
 sys.path.insert(0, str(PROJECT_ROOT / "source"))
 from util import load_canonicalized_bvh
 from viewer import create_initial_camera
+
+
+if TYPE_CHECKING:
+    from motion_view import MotionView
 
 
 HEADER_HEIGHT = 210
@@ -50,7 +55,7 @@ def create_review_viewer(
     show_mesh: bool = True,
     descriptions: dict[str, MotionDescription] | None = None,
     selection: str = "all",
-):
+) -> 'MotionView':
     """Keep a stable queue; only a committed human decision changes inclusion."""
     if unit not in ("action", "clip"):
         raise ValueError(unit)

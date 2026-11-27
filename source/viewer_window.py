@@ -1,9 +1,15 @@
 """Shared FreeGLUT lifecycle; no render timers survive window closure."""
 
+from typing import TYPE_CHECKING
+
 from OpenGL import GLUT
 
 
-def run_window(viewer):
+if TYPE_CHECKING:
+    from fairmotion.viz.glut_viewer import Viewer
+
+
+def run_window(viewer: 'Viewer') -> None:
     GLUT.glutInit(())
     GLUT.glutInitDisplayMode(GLUT.GLUT_RGBA | GLUT.GLUT_DOUBLE | GLUT.GLUT_ALPHA | GLUT.GLUT_DEPTH)
     GLUT.glutInitWindowSize(*viewer.window_size)

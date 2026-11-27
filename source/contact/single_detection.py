@@ -6,6 +6,9 @@ of the reference's centimeter coordinates and fixed 30 FPS.
 """
 
 from dataclasses import asdict, dataclass
+from collections.abc import Sequence
+
+import numpy as np
 
 from .threshold import detect_ground_contact
 
@@ -21,30 +24,35 @@ class JointGroundContact:
     ground_y: float = 0.0
     method: str = "joint-ground-v1"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.joints or len(set(self.joints)) != len(self.joints):
             raise ValueError("Contact joints must be nonempty and unique")
         if self.height_threshold <= 0 or self.speed_threshold <= 0:
             raise ValueError("Contact thresholds must be positive")
 
     @property
-    def width(self):
+    def width(self) -> int:
         return len(self.joints)
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data):
+    def from_dict(cls, data: dict) -> 'JointGroundContact':
         data = dict(data)
         data["joints"] = tuple(data["joints"])
         return cls(**data)
 
-    def points(self, world_rotations, world_positions, names):
+    def points(
+        self,
+        world_rotations: np.ndarray,
+        world_positions: np.ndarray,
+        names: Sequence[str],
+    ) -> np.ndarray:
         """Select joint centers in channel order; no sole offsets or mesh are used."""
         indices = [names.index(name) for name in self.joints]
         return world_positions[..., indices, :]
 
-    def detect(self, current, previous, dt):
+    def detect(self, current: np.ndarray, previous: np.ndarray, dt: float) -> np.ndarray:
         return detect_ground_contact(current, previous, dt, self.height_threshold,
                                      self.speed_threshold, self.ground_y)

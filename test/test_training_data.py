@@ -63,17 +63,18 @@ class TrainingDataTests(unittest.TestCase):
                 expected_R = np.stack([current.get_transform(n, local=False)[:3, :3] for n in layout.ee_names])
                 np.testing.assert_allclose(data["ee_rotations_world"][t], expected_R, atol=1e-7)
             records = [dict(cache="clip.npz", split="train")]
-            stats = compute_statistics(directory, records, layout, FeatureSchema(), 0)
+            schema = FeatureSchema(**report["schema"])
+            stats = compute_statistics(directory, records, layout, schema, 0)
             self.assertEqual(stats["count"], 4)
             np.testing.assert_allclose(stats["angular_rms"], np.sqrt(np.mean(velocity[3:] ** 2)), rtol=1e-7)
-            np.testing.assert_allclose(stats["mean"][:138], 0)
-            np.testing.assert_allclose(stats["scale"][:138], 1)
+            np.testing.assert_allclose(stats["mean"][:FeatureSchema().rotation_width], 0)
+            np.testing.assert_allclose(stats["scale"][:FeatureSchema().rotation_width], 1)
             np.testing.assert_allclose(stats["mean"][-4:], 0)
             self.assertEqual(set(stats["comparison_inputs"]), {"joint_relpos", "q_dot_prev", "x_dot_prev"})
             data["q_dot"] = data["q_dot"] * 1e9
             np.savez_compressed(directory / "validation.npz", **data)
             held_out = compute_statistics(directory, records + [dict(cache="validation.npz", split="validation")],
-                                          layout, FeatureSchema(), 0)
+                                          layout, schema, 0)
             self.assertEqual(stats, held_out)
 
     def test_quality_excludes_recording_and_mirror_but_keeps_semantic_exclusions(self):

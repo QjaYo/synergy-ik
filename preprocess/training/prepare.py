@@ -10,6 +10,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import time
+from collections.abc import Sequence
 
 import numpy as np
 from scipy.spatial.transform import Rotation
@@ -25,24 +26,30 @@ from pose import (SkeletonLayout, forward_kinematics, vectors_in_root, pose_arra
 from util import load_canonicalized_bvh
 
 
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 
 # Cached for later feature comparisons; absent from the baseline predictor input.
 COMPARISON_FIELDS = ("joint_relpos", "q_dot_prev", "x_dot_prev")
 
 
-def write_json(path, value):
+def write_json(path: str | Path, value: object) -> None:
     path = Path(path)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
     temporary.replace(path)
 
 
-def digest(value):
+def digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def select_records(data_root, database, mirrors, selected=None, source_groups=None):
+def select_records(
+    data_root: Path,
+    database: str | Path,
+    mirrors: str,
+    selected: set[str] | None = None,
+    source_groups: dict[str, str] | None = None,
+) -> list[dict]:
     """Read only; semantic review labels do not gate the baseline population."""
     with closing(sqlite3.connect(Path(database).resolve().as_uri() + "?mode=ro", uri=True)) as db:
         rows = db.execute("SELECT f.path, f.original_path, f.mirrored, m.action_name, m.human_decision "
@@ -70,7 +77,7 @@ def select_records(data_root, database, mirrors, selected=None, source_groups=No
     return records
 
 
-def assign_splits(records, seed):
+def assign_splits(records: Sequence[dict], seed: int) -> list[dict]:
     """Shuffle whole recording groups once; mirrors/declared derivatives cannot leak."""
     groups = sorted({row["group"] for row in records})
     np.random.default_rng(seed).shuffle(groups)
@@ -81,7 +88,13 @@ def assign_splits(records, seed):
     return [dict(row, split=assignment[row["group"]]) for row in records]
 
 
-def prepare_clip(job, *, contact_variants=None, angular_task=False, ee_rotation_features=False):
+def prepare_clip(
+    job: tuple[Path, Path, dict, int | None],
+    *,
+    contact_variants: dict[str, dict] | None = None,
+    angular_task: bool = True,
+    ee_rotation_features: bool = True,
+) -> dict:
     source, destination, contact_data, frame_limit = job
     torch.set_num_threads(1)
     source, destination = Path(source), Path(destination)
@@ -153,7 +166,14 @@ def prepare_clip(job, *, contact_variants=None, angular_task=False, ee_rotation_
                 layout=layout.to_dict(), schema=schema.to_dict())
 
 
-def compute_statistics(output, records, layout, schema, ground_y, contact_key="contact"):
+def compute_statistics(
+    output: Path,
+    records: Sequence[dict],
+    layout: SkeletonLayout,
+    schema: FeatureSchema,
+    ground_y: float,
+    contact_key: str = "contact",
+) -> dict:
     """Stable streaming population moments; rotation/contact features are not scaled."""
     count = 0
     mean = np.zeros(schema.width, dtype=np.float64)
@@ -173,7 +193,7 @@ def compute_statistics(output, records, layout, schema, ground_y, contact_key="c
                 torch.from_numpy(clip["root_positions"][1:-1]).double(),
                 torch.from_numpy(clip["ee_relpos"]).double(), task_velocity,
                 torch.from_numpy(clip[contact_key]), layout.rotation_indices, ground_y,
-                ee_rotations=ee_rotations).numpy()
+                ee_rotations=ee_rotations, root_rotation=schema.root_rotation).numpy()
             size = len(features)
             for name in COMPARISON_FIELDS:
                 values = clip[name].astype(np.float64).reshape(size, -1)
@@ -210,7 +230,7 @@ def compute_statistics(output, records, layout, schema, ground_y, contact_key="c
                 root_rms=float(rms[0]), angular_rms=float(rms[1]), comparison_inputs=comparisons)
 
 
-def build_dataset(args):
+def build_dataset(args: argparse.Namespace) -> None:
     started = time.perf_counter()
     args.output.mkdir(parents=True, exist_ok=True)
     manifest_path = args.output / "manifest.json"
@@ -337,7 +357,7 @@ def build_dataset(args):
     print(json.dumps(summary, indent=2))
 
 
-def parse_arguments(argv=None):
+def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--review-db", type=Path, required=True)

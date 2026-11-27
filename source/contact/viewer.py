@@ -1,22 +1,29 @@
 """Shared contact display: synchronized panels, labels, markers and playback."""
 
+from typing import TYPE_CHECKING
 from functools import partial
 from pathlib import Path
 import random
 import sys
 import textwrap
+from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
 
-from .playlist import DEFAULT_UNIFORM_ROOT, DEFAULT_UNIFORM_RIG, original_key
+from .playlist import DEFAULT_UNIFORM_ROOT, DEFAULT_UNIFORM_RIG, original_key, Entry
 from motion_view import MotionView
 from viewer import create_initial_camera
 from uniform_mesh import load_aligned_uniform_mesh, surface_colors
 from OpenGL import GL, GLU, GLUT
+from motion_review_data import MotionDescription
+from .sequence import ContactClip, ContactTrack
 from fairmotion.viz import gl_render
 
+if TYPE_CHECKING:
+    from fairmotion.viz.camera import Camera
 
-def create_contact_camera(clip, aspect):
+
+def create_contact_camera(clip: ContactClip, aspect: float) -> "Camera":
     """Fit the clip's full pose range while following horizontal root motion."""
     camera = create_initial_camera(clip.motion)
     root_ground = clip.positions[:, :1].copy()
@@ -36,9 +43,20 @@ def create_contact_camera(clip, aspect):
 class ContactViewer(MotionView):
     """Display loaded ContactClips; delegate threshold changes to their tracks."""
 
-    def __init__(self, entries, loader, descriptions=None, *, speed=1, show_mesh=True,
-                 uniform_root=DEFAULT_UNIFORM_ROOT, uniform_rig=DEFAULT_UNIFORM_RIG,
-                 title=b"SynergyIK | Contact viewer", height_band=0.040, footer=""):
+    def __init__(
+        self,
+        entries: Sequence[Entry],
+        loader: Callable[[Entry], ContactClip],
+        descriptions: Mapping[str, MotionDescription] | None = None,
+        *,
+        speed: float = 1,
+        show_mesh: bool = True,
+        uniform_root: str | Path = DEFAULT_UNIFORM_ROOT,
+        uniform_rig: str | Path = DEFAULT_UNIFORM_RIG,
+        title: bytes = b"SynergyIK | Contact viewer",
+        height_band: float = 0.040,
+        footer: str = "",
+    ) -> None:
         if not entries:
             raise ValueError("Contact viewer needs at least one motion")
         super().__init__(title, speed, show_mesh, surface_colors)
@@ -54,7 +72,7 @@ class ContactViewer(MotionView):
         super().set_contact_threshold(height_band)
         self.select(0)
 
-    def select(self, index):
+    def select(self, index: int) -> None:
         if not 0 <= index < len(self.entries):
             return
         if self.loading is not None:
@@ -70,7 +88,7 @@ class ContactViewer(MotionView):
         self.status = "Loading motion and contact results..."
         self.loading = self.executor.submit(self.loader, entry)
 
-    def poll_loading(self):
+    def poll_loading(self) -> None:
         if self.loading is None or not self.loading.done():
             return
         future, self.loading = self.loading, None
@@ -92,7 +110,13 @@ class ContactViewer(MotionView):
             self.status = f"Contact unavailable: {type(error).__name__}: {error}"
             print(self.status, file=sys.stderr, flush=True)
 
-    def set_panel_threshold(self, index, *, height=None, speed=None):
+    def set_panel_threshold(
+        self,
+        index: int,
+        *,
+        height: float | None = None,
+        speed: float | None = None,
+    ) -> None:
         track = self.clip.tracks[index]
         track.set_thresholds(height, speed)
         self.thresholds[index] = (track.detector.height_threshold, track.detector.speed_threshold)
@@ -100,14 +124,14 @@ class ContactViewer(MotionView):
         if index == 0:
             super().set_contact_threshold(track.detector.height_threshold)
 
-    def set_contact_threshold(self, value):
+    def set_contact_threshold(self, value: float) -> None:
         # Keep the existing comparison's Band control linked to the first detector.
         if self.clip is not None and self.clip.tracks[0].detector is not None:
             self.set_panel_threshold(0, height=max(.005, round(value, 6)))
         else:
             super().set_contact_threshold(value)
 
-    def act(self, action):
+    def act(self, action: str) -> None:
         if action in ("previous", "next"):
             self.select(self.index + (-1 if action == "previous" else 1))
         elif action == "random":
@@ -126,33 +150,33 @@ class ContactViewer(MotionView):
         else:
             self.handle_playback_action(action)
 
-    def keyboard_callback(self, key):
+    def keyboard_callback(self, key: bytes) -> bool:
         navigation = {b"p": "previous", b"n": "next", b"g": "random"}
         if key.lower() in navigation:
             self.act(navigation[key.lower()])
             return True
         return super().keyboard_callback(key)
 
-    def panel_bounds(self):
+    def panel_bounds(self) -> list[tuple[int, int]]:
         count = len(self.clip.tracks) if self.clip is not None else 1
         width = self.window_size[0]
         edges = [round(i * width / count) for i in range(count + 1)]
         return [(edges[i], edges[i + 1] - edges[i]) for i in range(count)]
 
-    def header_height(self):
+    def header_height(self) -> int:
         if self.clip is None:
             return 283
         return max(self.panel_layout(width, len(track.labels))[2]
                    for (_, width), track in zip(self.panel_bounds(), self.clip.tracks))
 
     @staticmethod
-    def panel_layout(width, channels):
+    def panel_layout(width: int, channels: int) -> tuple[int, int, int]:
         columns = 2 if width >= 560 else 1
         card_top = 207 if width >= 450 else 245
         rows = (channels + columns - 1) // columns
         return columns, card_top, card_top + rows * 45 + 31
 
-    def draw_panel_controls(self, index, track, left, width):
+    def draw_panel_controls(self, index: int, track: ContactTrack, left: int, width: int) -> None:
         self.text(track.title, left + 14, 136, large=True)
         if track.detector is not None:
             detector = track.detector
@@ -187,7 +211,7 @@ class ContactViewer(MotionView):
                 speed = "--" if not known else f"{track.speeds[frame, channel]:.3f}"
                 self.text(f"h {height:+.1f} mm | speed {speed} m/s", x + 8, y + 32)
 
-    def draw_controls(self):
+    def draw_controls(self) -> None:
         width, height = self.window_size
         self.buttons = []
         self.rectangle(0, 0, width, self.header_height(), (0.97, 0.98, 0.99, 1))
@@ -214,7 +238,7 @@ class ContactViewer(MotionView):
         self.text(message[:max(40, (width - 24) // 7)], 12, self.header_height() - 12)
         self.draw_playback_controls(self.footer or (self.clip.tracks[0].note if self.clip else self.status))
 
-    def draw_scene(self, panel, frame):
+    def draw_scene(self, panel: int, frame: int) -> None:
         if self.clip is None:
             return
         track = self.clip.tracks[panel]
@@ -239,7 +263,7 @@ class ContactViewer(MotionView):
             color = (.05, .8, .25, 1) if track.known[frame] and flag else (.35, .40, .46, 1)
             gl_render.render_point(point, radius=.025, color=color)
 
-    def draw_GL(self, swap_buffer=True):
+    def draw_GL(self, swap_buffer: bool = True) -> None:
         width, height = self.window_size
         bottom = self.playback_bar_height()
         scene_height = max(1, height - self.header_height() - bottom)

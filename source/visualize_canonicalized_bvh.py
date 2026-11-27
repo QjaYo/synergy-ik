@@ -6,6 +6,8 @@ from functools import partial
 from pathlib import Path
 import sys
 import textwrap
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -14,12 +16,17 @@ from viewer import create_initial_camera
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "preprocess/motion_review"))
-from motion_review_data import DEFAULT_METADATA, load_motion_descriptions, original_key
+from motion_review_data import DEFAULT_METADATA, load_motion_descriptions, original_key, MotionDescription
 from uniform_mesh import (DEFAULT_UNIFORM_ROOT, DEFAULT_UNIFORM_RIG,
                           load_aligned_uniform_mesh, surface_colors)
 
 
-def parse_viewer_arguments(argv=None):
+if TYPE_CHECKING:
+    from fairmotion.core.motion import Motion
+    from motion_view import MotionView
+
+
+def parse_viewer_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     inputs = parser.add_mutually_exclusive_group(required=True)
     inputs.add_argument("--bvh-file", type=Path)
@@ -39,7 +46,7 @@ def parse_viewer_arguments(argv=None):
     return arguments
 
 
-def read_bvh_paths(arguments):
+def read_bvh_paths(arguments: argparse.Namespace) -> list[Path]:
     """Read an ordered playlist; ignore blank lines and # comments."""
     if arguments.bvh_file is not None:
         paths = [arguments.bvh_file.resolve()]
@@ -56,14 +63,18 @@ def read_bvh_paths(arguments):
     return paths
 
 
-def create_canonicalized_bvh_viewer(motion, playback_speed, paths, unit="m", *,
-                                  show_mesh=True, uniform_root=DEFAULT_UNIFORM_ROOT,
-                                  uniform_rig=DEFAULT_UNIFORM_RIG, descriptions=None):
+def create_canonicalized_bvh_viewer(
+    motion: "Motion", playback_speed: float, paths: Sequence[Path], unit: str = "m", *,
+    show_mesh: bool = True,
+    uniform_root: Path = DEFAULT_UNIFORM_ROOT,
+    uniform_rig: Path = DEFAULT_UNIFORM_RIG,
+    descriptions: Mapping[str, MotionDescription] | None = None,
+) -> "MotionView":
     """A playlist supplies clips; MotionView supplies the shared playback screen."""
     from motion_view import MotionView
 
     class CanonicalizedBvhViewer(MotionView):
-        def __init__(self):
+        def __init__(self) -> None:
             super().__init__(b"SynergyIK | Motion viewer", playback_speed, show_mesh, surface_colors)
             self.paths = list(paths)
             self.motion_index = 0
@@ -73,17 +84,17 @@ def create_canonicalized_bvh_viewer(motion, playback_speed, paths, unit="m", *,
             self.configure_mesh_loader()
             self.start_mesh_loading()
 
-        def clip_key(self):
+        def clip_key(self) -> str:
             path = self.paths[self.motion_index]
             return f"{path.parent.name}/{path.name}"
 
-        def configure_mesh_loader(self):
+        def configure_mesh_loader(self) -> None:
             self.mesh_loader = partial(load_aligned_uniform_mesh, uniform_root / self.clip_key(), uniform_rig)
 
-        def navigation_enabled(self, direction):
+        def navigation_enabled(self, direction: int) -> bool:
             return 0 <= self.motion_index + direction < len(self.paths)
 
-        def select_motion(self, direction):
+        def select_motion(self, direction: int) -> None:
             if not self.navigation_enabled(direction):
                 return
             if self.loading is not None:
@@ -98,7 +109,7 @@ def create_canonicalized_bvh_viewer(motion, playback_speed, paths, unit="m", *,
             self.loading = self.executor.submit(load_canonicalized_bvh, self.paths[self.motion_index], unit)
             self.status = "Loading motion..."
 
-        def poll_loading(self):
+        def poll_loading(self) -> None:
             if self.loading is None or not self.loading.done():
                 return
             future, self.loading = self.loading, None
@@ -110,29 +121,29 @@ def create_canonicalized_bvh_viewer(motion, playback_speed, paths, unit="m", *,
             except Exception as error:
                 self.status = f"Load failed: {type(error).__name__}: {error}"
 
-        def act(self, action):
+        def act(self, action: str) -> None:
             if action in ("previous", "next"):
                 self.select_motion(-1 if action == "previous" else 1)
             else:
                 self.handle_playback_action(action)
 
-        def keyboard_callback(self, key):
+        def keyboard_callback(self, key: bytes) -> bool:
             if key.lower() in (b"p", b"n"):
                 self.select_motion(-1 if key.lower() == b"p" else 1)
                 return True
             return super().keyboard_callback(key)
 
-        def description_lines(self):
+        def description_lines(self) -> list[str]:
             description = (descriptions or {}).get(original_key(self.clip_key()))
             text = description.text if description and description.text else "No official description available for this clip."
             if description and original_key(self.clip_key()) != self.clip_key():
                 text = "Original description (mirrored clip): " + text
             return textwrap.wrap(text, max(35, (self.window_size[0] - 24) // 10))
 
-        def header_height(self):
+        def header_height(self) -> int:
             return 172 + max(0, len(self.description_lines()) - 1) * 22
 
-        def draw_controls(self):
+        def draw_controls(self) -> None:
             width, _ = self.window_size
             self.buttons = []
             self.rectangle(0, 0, width, self.header_height(), (0.97, 0.98, 0.99, 1))
@@ -160,7 +171,7 @@ def create_canonicalized_bvh_viewer(motion, playback_speed, paths, unit="m", *,
     return CanonicalizedBvhViewer()
 
 
-def main():
+def main() -> None:
     arguments = parse_viewer_arguments()
     instance = None
     try:

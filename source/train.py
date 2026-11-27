@@ -9,29 +9,30 @@ import time
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 
-from checkpoint import write_checkpoint, random_state, restore_random_state
-from features import Standardizer
-from learning import SolveConfig, VelocityMetrics, evaluate, predict_batch, velocity_loss
-from training_data import PreparedDataset
+from checkpoint import CHECKPOINT_VERSION, read_checkpoint, write_checkpoint, random_state, restore_random_state
+from features import Standardizer, FeatureSchema, ROOT_ROTATIONS, DEFAULT_ROOT_ROTATION
+from learning import (SolveConfig, VelocityMetrics, check_finite_gradients, default_device, evaluate,
+                      predict_batch, scalar_values, velocity_errors)
+from training_data import PreparedDataset, batch_loader
 from training_log import TrainingLog
 from weights.learned import ModelConfig, WPrediction
+from velocity_solvers import DEFAULT_METHOD, METHODS
 
 
-def train(args):
+def train(args: argparse.Namespace) -> None:
     torch.set_num_threads(args.threads)
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    dataset = PreparedDataset(args.dataset, args.contact_mode)
-    resume = torch.load(args.resume, map_location="cpu", weights_only=True) if args.resume else None
+    dataset = PreparedDataset(args.dataset, args.contact_mode, root_rotation=args.root_rotation)
+    resume = read_checkpoint(args.resume) if args.resume else None
     same_run = resume is not None and args.output.resolve() == args.resume.parent.resolve()
     if not same_run and args.output.exists() and any(args.output.iterdir()):
         raise FileExistsError(f"Choose an empty run directory: {args.output}")
     args.output.mkdir(parents=True, exist_ok=True)
     config = ModelConfig(dataset.schema.width, dataset.layout.dofs, args.width, args.depth)
-    solve_config = SolveConfig(args.solver_device, args.solver_dtype, args.pinv_rtol)
+    solve_config = SolveConfig(args.solver_device, args.solver_dtype, args.pinv_rtol, args.ik_solver)
     model = WPrediction(config).to(args.device)
     standardizer = Standardizer(dataset.statistics["mean"], dataset.statistics["scale"]).to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -41,7 +42,7 @@ def train(args):
     elapsed = 0.0
     metrics = VelocityMetrics(dataset.schema.angular_task)
     if args.initialize_from:
-        initial = torch.load(args.initialize_from, map_location="cpu", weights_only=True)
+        initial = read_checkpoint(args.initialize_from)
         if (initial["contract"] != dataset.contract or initial["statistics"] != dataset.statistics
                 or initial["model_config"] != config.to_dict()):
             raise ValueError("Fine-tuning requires matching features, normalization and model dimensions")
@@ -53,7 +54,7 @@ def train(args):
         if (resume["manifest_sha256"] != manifest_hash or resume["contract"] != dataset.contract
                 or resume["statistics"] != dataset.statistics or resume["model_config"] != config.to_dict()):
             raise ValueError("Resume requires the original dataset, statistics and model configuration")
-        for name in ("lr", "batch_size", "seed", "workers", "patience", "solver_dtype", "pinv_rtol"):
+        for name in ("lr", "batch_size", "seed", "workers", "patience", "solver_dtype", "pinv_rtol", "ik_solver"):
             if getattr(args, name) != resume["settings"][name]:
                 raise ValueError(f"Exact resume cannot change {name}; start a separate experiment instead")
         model.load_state_dict(resume["model_state"])
@@ -82,13 +83,18 @@ def train(args):
         json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     start = time.perf_counter()
 
-    def save(next_epoch, batch_index, current_metrics, completed_epoch):
-        saved = dict(version=1, model_config=config.to_dict(), model_state=model.state_dict(),
+    def save(
+        next_epoch: int,
+        batch_index: int,
+        current_metrics: VelocityMetrics,
+        completed_epoch: int,
+    ) -> dict:
+        saved = dict(version=CHECKPOINT_VERSION, model_config=config.to_dict(), model_state=model.state_dict(),
                      statistics=dataset.statistics, contract=dataset.contract, solve_config=solve_config.to_dict(),
                      settings=settings, manifest_sha256=manifest_hash, optimizer_state=optimizer.state_dict(),
                      epoch=completed_epoch, step=step, best_validation=best,
                      training_state=dict(next_epoch=next_epoch, next_batch=batch_index, reference=reference,
-                         stale=stale, metric_count=current_metrics.count, metric_sums=current_metrics.sums,
+                         stale=stale, metric_count=current_metrics.count, metric_sums=scalar_values(current_metrics.sums),
                          elapsed_seconds=elapsed + time.perf_counter()-start, random=random_state()))
         write_checkpoint(args.output / "last.pt", saved)
         return saved
@@ -101,38 +107,35 @@ def train(args):
             model.train()
             if epoch != start_epoch or not next_batch:
                 metrics = VelocityMetrics(dataset.schema.angular_task)
-            batches = DataLoader(dataset.batches("train", args.batch_size, shuffle=True, epoch=epoch, seed=args.seed),
-                                 batch_size=None, num_workers=args.workers,
-                                 generator=torch.Generator().manual_seed(args.seed + epoch))
+            batches = batch_loader(dataset.batches("train", args.batch_size, shuffle=True, epoch=epoch, seed=args.seed),
+                                   workers=args.workers, pin_memory="cuda" in (args.device, solve_config.device),
+                                   seed=args.seed + epoch)
             for batch_index, batch in enumerate(batches):
                 if batch_index < next_batch:
                     continue
                 with log.batch(model, optimizer, batch, step=step + 1, epoch=epoch + 1, batch_index=batch_index + 1):
                     optimizer.zero_grad(set_to_none=True)
+                    target = solve_config.move(batch["target"])
                     prediction, J, x_dot = predict_batch(model, standardizer, batch, dataset.layout, solve_config,
                                                         observe_solve=log.observe_solve)
-                    target = batch["target"].to(prediction)
-                    loss = velocity_loss(prediction, target, dataset.statistics)
-                    context = f"clip={batch['source']} frames={batch['frames']} step={step + 1}"
+                    errors = velocity_errors(prediction, target, dataset.statistics)
+                    loss = errors["loss"]
                     if not torch.isfinite(loss):
-                        raise FloatingPointError(f"Non-finite velocity loss: {context}")
+                        raise FloatingPointError("Non-finite velocity loss")
                     loss.backward()
-                    for name, parameter in model.named_parameters():
-                        if parameter.grad is not None and not torch.isfinite(parameter.grad).all():
-                            raise FloatingPointError(f"Non-finite gradient in {name}: {context}")
+                    check_finite_gradients(model)
                     optimizer.step()
-                    metrics.update(prediction, target, J, x_dot, dataset.statistics)
+                    values = metrics.update(prediction, target, J, x_dot, dataset.statistics, errors)
                     step += 1
                     if step == 1 or step % args.log_every == 0:
-                        batch_metrics = VelocityMetrics(dataset.schema.angular_task)
-                        batch_metrics.update(prediction, target, J, x_dot, dataset.statistics)
-                        log.training_step(model, optimizer, batch_metrics.result(), epoch + 1)
+                        report = metrics.report(len(prediction), values)
+                        log.training_step(model, optimizer, report, epoch + 1)
                 if step % args.log_every == 0:
                     progress = dict(epoch=epoch+1, batch=batch_index+1, batches=len(batches), step=step,
-                                    loss=loss.item(), elapsed_seconds=elapsed + time.perf_counter()-start)
+                                    loss=report["loss"], elapsed_seconds=elapsed + time.perf_counter()-start)
                     with (args.output / "steps.jsonl").open("a", encoding="utf-8") as stream:
                         stream.write(json.dumps(progress) + "\n")
-                    print(f"epoch={epoch+1} batch={batch_index+1}/{len(batches)} step={step} loss={loss.item():.6g}", flush=True)
+                    print(f"epoch={epoch+1} batch={batch_index+1}/{len(batches)} step={step} loss={report['loss']:.6g}", flush=True)
                 if step % args.checkpoint_every == 0:
                     save(epoch, batch_index + 1, metrics, epoch)
                 if args.max_steps is not None and step >= args.max_steps:
@@ -140,7 +143,9 @@ def train(args):
                     print("Step budget reached; saved last.pt for continuation", flush=True)
                     return
             next_batch = 0
-            validation = evaluate(model, standardizer, dataset.batches("validation", args.batch_size), dataset, solve_config)
+            validation_batches = batch_loader(dataset.batches("validation", args.batch_size), workers=args.workers,
+                                              pin_memory="cuda" in (args.device, solve_config.device), seed=args.seed)
+            validation = evaluate(model, standardizer, validation_batches, dataset, solve_config)
             value = validation["learned"]["loss"]
             if not np.isfinite(value):
                 raise FloatingPointError("Non-finite validation loss")
@@ -165,27 +170,32 @@ def train(args):
                 break
 
 
-def parser(*, resuming=False):
+def parser(*, resuming: bool = False) -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("--resume", type=Path, help="Continue from a checkpoint including training state")
     result.add_argument("--initialize-from", type=Path, help="Start a new experiment from model weights only")
     result.add_argument("--dataset", type=Path, required=not resuming)
     result.add_argument("--contact-mode", help="Named contact variant in a shared NPZ dataset")
+    result.add_argument("--root-rotation", choices=ROOT_ROTATIONS, default=DEFAULT_ROOT_ROTATION,
+                        help="Root input encoding; existing NPZ pose matrices are reused (default: %(default)s)")
     result.add_argument("--output", type=Path, required=not resuming)
-    result.add_argument("--epochs", type=int, required=not resuming, help="Total epoch budget, including completed epochs")
+    result.add_argument("--epochs", type=int, default=30, help="Total epoch budget, including completed epochs")
     result.add_argument("--max-steps", type=int)
-    result.add_argument("--device", default="cpu", choices=("cpu", "cuda"))
-    result.add_argument("--solver-device", default="cpu", choices=("cpu", "cuda"))
+    result.add_argument("--device", default=default_device(), choices=("cpu", "cuda"))
+    result.add_argument("--solver-device", choices=("cpu", "cuda"), help="Defaults to the model device")
     result.add_argument("--solver-dtype", default="float64", choices=("float32", "float64"))
+    result.add_argument("--ik-solver", choices=METHODS, default=DEFAULT_METHOD,
+                        help="Weighted velocity solve (default: %(default)s)")
     result.add_argument("--pinv-rtol", type=float, default=1e-12)
-    result.add_argument("--width", type=int, default=512)
-    result.add_argument("--depth", type=int, default=2)
+    result.add_argument("--width", type=int, default=ModelConfig.hidden_width)
+    result.add_argument("--depth", type=int, default=ModelConfig.depth,
+                        help="Total Linear layers, including the output head (default: %(default)s)")
     result.add_argument("--batch-size", type=int, default=256)
     result.add_argument("--lr", type=float, default=1e-4)
-    result.add_argument("--patience", type=int, default=10, help="Early-stopping epochs; 0 disables early stopping")
+    result.add_argument("--patience", type=int, default=0, help="Early-stopping epochs; 0 disables early stopping")
     result.add_argument("--save-every-epochs", type=int, default=10, help="Keep an epoch snapshot at this interval")
     result.add_argument("--seed", type=int, default=42)
-    result.add_argument("--workers", type=int, default=0)
+    result.add_argument("--workers", type=int, default=2)
     result.add_argument("--threads", type=int, default=2)
     result.add_argument("--log-every", type=int, default=20)
     result.add_argument("--diagnostics-every", type=int, default=100, help="Record L condition and solve operands every N steps")
@@ -193,17 +203,21 @@ def parser(*, resuming=False):
     return result
 
 
-def parse_arguments(argv=None):
+def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     bootstrap = argparse.ArgumentParser(add_help=False)
     bootstrap.add_argument("--resume", type=Path)
     initial, _ = bootstrap.parse_known_args(argv)
     arguments = parser(resuming=initial.resume is not None)
     if initial.resume:
-        saved = torch.load(initial.resume, map_location="cpu", weights_only=True)
+        saved = read_checkpoint(initial.resume)
         defaults = dict(saved["settings"], output=initial.resume.parent, max_steps=None, initialize_from=None)
         defaults["dataset"] = Path(defaults["dataset"])
+        defaults["root_rotation"] = FeatureSchema.from_dict(saved["contract"]["schema"]).root_rotation
         arguments.set_defaults(**defaults)
     options = arguments.parse_args(argv)
+    options.solver_device = options.solver_device or options.device
+    if options.workers < 0:
+        arguments.error("--workers must be nonnegative")
     if options.resume and options.initialize_from:
         arguments.error("--resume and --initialize-from select different training modes")
     if min(options.epochs, options.batch_size, options.threads, options.log_every,

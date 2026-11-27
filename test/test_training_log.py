@@ -9,6 +9,7 @@ import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "source"))
+from learning import VelocityMetrics, scalar_values, velocity_errors
 from solver import solve_weighted_velocity
 from training_log import TrainingLog
 
@@ -22,7 +23,7 @@ class TrainingLogTests(unittest.TestCase):
         expected_gradient, = torch.autograd.grad(reference.square().sum(), factor)
         rng = torch.get_rng_state().clone()
         with tempfile.TemporaryDirectory() as directory:
-            with TrainingLog(Path(directory), {}, diagnostics_every=10) as log:
+            with TrainingLog(Path(directory), dict(solve_config=dict(method="cholesky_pinv")), diagnostics_every=10) as log:
                 log.step = 1
                 log.observe_solve(factor, J)
                 prediction = solve_weighted_velocity(J, factor, x_dot)
@@ -36,6 +37,21 @@ class TrainingLogTests(unittest.TestCase):
                                   "J_L_inverse_T_finite_fraction": 1.}.items():
                 values = events.Tensors("numerics/" + tag)
                 self.assertEqual([(v.step, v.tensor_proto.double_val[0]) for v in values], [(1, expected)])
+
+    def test_metrics_weight_short_batch_by_samples_and_keep_only_detached_totals(self):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        metrics = VelocityMetrics()
+        for size, speed in [(3, 1.), (1, 3.)]:
+            q = torch.full((size, 6), speed, device=device, requires_grad=True)
+            target = torch.zeros_like(q)
+            J = torch.eye(6, device=device).expand(size, -1, -1)
+            scales = dict(root_rms=1., angular_rms=1.)
+            errors = velocity_errors(q, target, scales)
+            batch = metrics.update(q, target, J, target, scales, errors)
+            self.assertEqual(metrics.report(size, batch)["loss"], speed ** 2)
+        self.assertTrue(all(t.device.type == device and not t.requires_grad for t in metrics.sums.values()))
+        self.assertEqual(metrics.result()["loss"], (3 * 1. + 1 * 9.) / 4)
+        self.assertEqual(scalar_values(metrics.sums)["loss"], 12.)
 
     def test_preserves_values_outside_float32_range(self):
         with tempfile.TemporaryDirectory() as directory:

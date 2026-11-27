@@ -68,6 +68,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+/ssh-config.txt
 
 # Local editor and viewer settings
 /.vscode/

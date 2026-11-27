@@ -79,7 +79,7 @@ class PoseTaskTests(unittest.TestCase):
                  patch("prepare.load_canonicalized_bvh", return_value=motion), redirect_stdout(StringIO()):
                 build_dataset(args)
             dataset = PreparedDataset(output)
-            self.assertEqual(dataset.schema.width, 201)
+            self.assertEqual(dataset.schema.width, 198)
             batch = next(iter(dataset.batches("train", 3)))
             self.assertEqual(batch["x_dot"].shape, (3, 24))
             self.assertEqual(batch_jacobian(batch, layout, SolveConfig()).shape, (3, 24, 72))
@@ -106,7 +106,7 @@ class PoseTaskTests(unittest.TestCase):
             model, standardizer, _ = load_checkpoint(run / "last.pt")
             metrics = evaluate(model, standardizer, dataset.batches("train", 3), dataset, SolveConfig())
             self.assertIn("task_angular_rmse_rad_s", metrics["learned"])
-            playback = IKPlayback(motion, partial(solve_ik_step, mode=SolverMode.SPD, W=learned),
+            playback = IKPlayback(motion, partial(solve_ik_step, velocity_solver=learned.solve_velocity),
                 panel_label="Weighted", fixed_ee_names=layout.ee_names, constrain_orientation=True,
                 prepare_solver=learned.begin_frame, reset_solver=learned.reset_history)
             with redirect_stdout(StringIO()):

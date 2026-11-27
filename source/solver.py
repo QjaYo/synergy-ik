@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from enum import IntEnum
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import numpy as np
 import torch
@@ -14,10 +14,12 @@ from util import (
 from fairmotion.core.motion import Pose
 from fairmotion.ops import conversions
 from pose import angular_displacement
+from velocity_solvers import DEFAULT_METHOD, solve_weighted_velocity
 
 
 # The provider returns W in the same reduced velocity order as the Jacobian.
 WeightProvider = Callable[[Pose, tuple[str, ...], np.ndarray], np.ndarray]
+VelocitySolver = Callable[[np.ndarray, Pose, tuple[str, ...], np.ndarray], np.ndarray]
 
 
 class SolverMode(IntEnum):
@@ -44,18 +46,22 @@ def solve_ik_step(
     dt: float,
     *,
     mode: SolverMode = SolverMode.DIAGONAL,
-    W: np.ndarray | WeightProvider,
+    W: np.ndarray | WeightProvider | None = None,
+    velocity_solver: VelocitySolver | None = None,
+    method: str = DEFAULT_METHOD,
     pinv_rtol: float = 1e-12,
     target_rotations: np.ndarray | None = None,
 ) -> IKStepResult:
     """Refine the supplied pose against fixed EE targets and return the final metrics."""
     mode = SolverMode(mode)
+    if (W is None) == (velocity_solver is None):
+        raise ValueError("Provide either W or velocity_solver")
 
     pos_tolerance = 1e-3  # m; tolerance for every EE position error
     max_iter = 10
     iters = 0
 
-    def errors():
+    def errors() -> tuple[np.ndarray, np.ndarray | None]:
         position = target_positions - get_joint_world_positions(prev_pose, ee_names)
         rotation = None
         if target_rotations is not None and ee_names:
@@ -75,13 +81,17 @@ def solve_ik_step(
         if rotation_error is not None:
             x_dot = np.concatenate((x_dot, (rotation_error / dt).reshape(-1)))
 
-        # Compute Pseudoinverse of Jacobian
+        # Assemble the task Jacobian, then solve for joint velocity.
         J = (compute_jacobian_analytic(prev_pose, ee_names) if target_rotations is None
              else compute_pose_task_jacobian(prev_pose, ee_names))
-        iteration_W = W(prev_pose, ee_names, x_dot) if callable(W) else W
-        J_pinv = compute_pseudoinverse(J, mode, iteration_W, rtol=pinv_rtol)
-        # Compute joint velocity
-        q_dot = J_pinv @ x_dot  # (3 + 3*M,); M excludes leaf rotations
+        if velocity_solver is not None:
+            q_dot = velocity_solver(J, prev_pose, ee_names, x_dot)
+        else:
+            iteration_W = W(prev_pose, ee_names, x_dot) if callable(W) else W
+            factor = (np.diag(np.sqrt(np.diag(iteration_W))) if mode == SolverMode.DIAGONAL
+                      else np.linalg.cholesky(iteration_W))
+            q_dot = solve_weighted_velocity(torch.from_numpy(J), torch.from_numpy(factor),
+                                            torch.from_numpy(x_dot), method=method, rtol=pinv_rtol).numpy()
 
         apply_joint_velocity(prev_pose, q_dot, dt)
         iters += 1
@@ -138,7 +148,13 @@ def compute_pseudoinverse_spd(
     return np.linalg.solve(L.T, np.linalg.pinv(J_scaled, rcond=rtol))
 
 
-def compute_jacobian_tensor(world_rotations, world_positions, parents, rotation_indices, ee_indices):
+def compute_jacobian_tensor(
+    world_rotations: torch.Tensor,
+    world_positions: torch.Tensor,
+    parents: Sequence[int],
+    rotation_indices: Sequence[int],
+    ee_indices: Sequence[int],
+) -> torch.Tensor:
     """Batched analytic world J; local angular columns agree with right multiplication."""
     count = len(ee_indices)
     shape = (*world_positions.shape[:-2], 3 * count, 3 + 3 * len(rotation_indices))
@@ -158,7 +174,7 @@ def compute_jacobian_tensor(world_rotations, world_positions, parents, rotation_
     return J
 
 
-def jacobian_in_root(J_world, root_rotation):
+def jacobian_in_root(J_world: torch.Tensor, root_rotation: torch.Tensor) -> torch.Tensor:
     """Change physical velocity bases; do not differentiate moving-frame features."""
     rows = J_world.reshape(*J_world.shape[:-2], -1, 3, J_world.shape[-1])
     rotated = root_rotation.transpose(-1, -2).unsqueeze(-3) @ rows
@@ -166,14 +182,13 @@ def jacobian_in_root(J_world, root_rotation):
     return rotated.reshape_as(J_world)
 
 
-def solve_weighted_velocity(J, factor, x_dot, *, rtol=1e-12):
-    """Differentiable minimum-cost solve without forming W or its inverse."""
-    scaled = torch.linalg.solve_triangular(factor, J.transpose(-1, -2), upper=False).transpose(-1, -2)
-    transformed = torch.linalg.pinv(scaled, rtol=rtol) @ x_dot.unsqueeze(-1)
-    return torch.linalg.solve_triangular(factor.transpose(-1, -2), transformed, upper=True).squeeze(-1)
-
-
-def compute_pose_jacobian_tensor(world_rotations, world_positions, parents, rotation_indices, ee_indices):
+def compute_pose_jacobian_tensor(
+    world_rotations: torch.Tensor,
+    world_positions: torch.Tensor,
+    parents: Sequence[int],
+    rotation_indices: Sequence[int],
+    ee_indices: Sequence[int],
+) -> torch.Tensor:
     """World task rows: all EE linear xyz velocities, then all EE angular xyz velocities."""
     linear = compute_jacobian_tensor(world_rotations, world_positions, parents, rotation_indices, ee_indices)
     angular = torch.zeros_like(linear)
@@ -188,7 +203,7 @@ def compute_pose_jacobian_tensor(world_rotations, world_positions, parents, rota
     return torch.cat((linear, angular), dim=-2)
 
 
-def compute_pose_task_jacobian(prev_pose, ee_names):
+def compute_pose_task_jacobian(prev_pose: Pose, ee_names: tuple[str, ...]) -> np.ndarray:
     transforms = np.stack([prev_pose.get_transform(joint, local=False) for joint in prev_pose.skel.joints])
     parents = tuple(-1 if joint.parent_joint is None else prev_pose.skel.get_index_joint(joint.parent_joint)
                     for joint in prev_pose.skel.joints)
