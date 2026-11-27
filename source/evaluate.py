@@ -20,7 +20,8 @@ def main() -> None:
     parser.add_argument("--split", choices=("train", "validation", "test"), default="validation")
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--device", choices=("cpu", "cuda"), default=default_device())
-    parser.add_argument("--solver-device", choices=("cpu", "cuda"), help="Defaults to the model device")
+    parser.add_argument("--solver-device", choices=("cpu", "cuda"), default=SolveConfig.device,
+                        help="Device for FK, Jacobian, IK and loss (default: %(default)s)")
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--ik-solver", choices=METHODS, help="Override the checkpoint's solver for comparison")
     parser.add_argument("--threads", type=int, default=2)
@@ -33,7 +34,7 @@ def main() -> None:
     dataset = PreparedDataset(args.dataset, contact_mode, root_rotation=schema.root_rotation)
     if dataset.contract != saved["contract"] or dataset.statistics != saved["statistics"]:
         raise ValueError("Evaluation data must use the checkpoint's feature/contact/statistics reference")
-    config = SolveConfig(**dict(saved["solve_config"], device=args.solver_device or args.device,
+    config = SolveConfig(**dict(saved["solve_config"], device=args.solver_device,
                                method=args.ik_solver or saved["solve_config"]["method"]))
     batches = batch_loader(dataset.batches(args.split, args.batch_size), workers=args.workers,
                            pin_memory="cuda" in (args.device, config.device), seed=42)

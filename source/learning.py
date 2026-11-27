@@ -1,6 +1,6 @@
 """Differentiable batch prediction, velocity metrics and checkpoint reconstruction."""
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -21,7 +21,7 @@ def default_device() -> str:
 
 @dataclass(frozen=True)
 class SolveConfig:
-    device: str = field(default_factory=default_device)
+    device: str = "cpu"
     dtype: str = "float64"
     pinv_rtol: float = 1e-12
     method: str = DEFAULT_METHOD

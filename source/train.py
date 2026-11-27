@@ -182,7 +182,8 @@ def parser(*, resuming: bool = False) -> argparse.ArgumentParser:
     result.add_argument("--epochs", type=int, default=30, help="Total epoch budget, including completed epochs")
     result.add_argument("--max-steps", type=int)
     result.add_argument("--device", default=default_device(), choices=("cpu", "cuda"))
-    result.add_argument("--solver-device", choices=("cpu", "cuda"), help="Defaults to the model device")
+    result.add_argument("--solver-device", choices=("cpu", "cuda"), default=SolveConfig.device,
+                        help="Device for FK, Jacobian, IK and loss (default: %(default)s)")
     result.add_argument("--solver-dtype", default="float64", choices=("float32", "float64"))
     result.add_argument("--ik-solver", choices=METHODS, default=DEFAULT_METHOD,
                         help="Weighted velocity solve (default: %(default)s)")
@@ -211,11 +212,11 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     if initial.resume:
         saved = read_checkpoint(initial.resume)
         defaults = dict(saved["settings"], output=initial.resume.parent, max_steps=None, initialize_from=None)
+        defaults["solver_device"] = saved["solve_config"]["device"]
         defaults["dataset"] = Path(defaults["dataset"])
         defaults["root_rotation"] = FeatureSchema.from_dict(saved["contract"]["schema"]).root_rotation
         arguments.set_defaults(**defaults)
     options = arguments.parse_args(argv)
-    options.solver_device = options.solver_device or options.device
     if options.workers < 0:
         arguments.error("--workers must be nonnegative")
     if options.resume and options.initialize_from:

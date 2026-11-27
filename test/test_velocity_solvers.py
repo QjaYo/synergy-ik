@@ -119,6 +119,12 @@ class VelocitySolverTests(unittest.TestCase):
             actual = weights.solve_velocity(J.numpy(), None, (), x_dot.numpy())
             np.testing.assert_allclose(actual, reference, atol=2e-12, rtol=2e-12)
 
+    def test_solver_device_is_independent_of_model_device(self):
+        args = ["--dataset", "data", "--output", "out", "--device", "cuda"]
+        self.assertEqual(SolveConfig().device, "cpu")
+        self.assertEqual(parse_arguments(args).solver_device, "cpu")
+        self.assertEqual(parse_arguments(args + ["--solver-device", "cuda"]).solver_device, "cuda")
+
     def test_legacy_checkpoints_keep_the_original_solver(self):
         with tempfile.TemporaryDirectory() as directory:
             for version in (1, 2):

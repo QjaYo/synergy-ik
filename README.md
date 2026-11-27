@@ -125,7 +125,9 @@ python source/run.py --bvh-file data/canonical_bvh/DATE/clip.bvh --checkpoint ex
 
 New runs use 198 inputs, including world up expressed in the pelvis frame, and
 the null-space QR solver. Existing pose caches retain the full root rotation
-for computing the Jacobian. Training defaults to 30 epochs on CUDA when available.
+for computing the Jacobian. Training defaults to 30 epochs. Training and
+evaluation run the network on CUDA when available and solve IK on the CPU in
+float64. Use `--solver-device cuda` to run IK on the GPU.
 
 Replace example paths with your files. The IK viewer compares reference,
 Moore-Penrose and weighted motion with matching EE constraints.
